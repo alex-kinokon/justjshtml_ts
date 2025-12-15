@@ -66,6 +66,10 @@ export class Node {
     return this.children.length > 0;
   }
 
+  has_child_nodes() {
+    return this.hasChildNodes();
+  }
+
   get text() {
     if (this.name === "#text") return this.data || "";
     return "";
