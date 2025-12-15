@@ -1,4 +1,5 @@
 import { Doctype } from "./tokens.js";
+import { FOREIGN_ATTRIBUTE_ADJUSTMENTS } from "./constants.js";
 
 // Mirrors justhtml.serialize.to_test_format.
 
@@ -88,7 +89,7 @@ function nodeToTestFormat(node, indent, options) {
 }
 
 export function toTestFormat(node, options = {}) {
-  const { foreignAttributeAdjustments = null } = options;
+  const { foreignAttributeAdjustments = FOREIGN_ATTRIBUTE_ADJUSTMENTS } = options;
   const opts = { foreignAttributeAdjustments };
 
   if (node.name === "#document" || node.name === "#document-fragment") {
@@ -97,4 +98,3 @@ export function toTestFormat(node, options = {}) {
 
   return nodeToTestFormat(node, 0, opts);
 }
-
