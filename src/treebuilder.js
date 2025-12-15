@@ -599,6 +599,50 @@ export class TreeBuilder {
     }
   }
 
+  _close_p_element() {
+    if (this._has_element_in_button_scope("p")) {
+      this._generate_implied_end_tags("p");
+      if (this.open_elements.length && this.open_elements[this.open_elements.length - 1].name !== "p") {
+        this._parse_error("end-tag-too-early", "p");
+      }
+      this._pop_until_inclusive("p");
+      return true;
+    }
+    return false;
+  }
+
+  _in_scope(name) {
+    return this._has_element_in_scope(name, DEFAULT_SCOPE_TERMINATORS);
+  }
+
+  _close_element_by_name(name) {
+    let index = this.open_elements.length - 1;
+    while (index >= 0) {
+      if (this.open_elements[index].name === name) {
+        this.open_elements.splice(index);
+        return;
+      }
+      index -= 1;
+    }
+  }
+
+  _any_other_end_tag(name) {
+    let index = this.open_elements.length - 1;
+    while (index >= 0) {
+      const node = this.open_elements[index];
+      if (node.name === name) {
+        if (index !== this.open_elements.length - 1) this._parse_error("end-tag-too-early");
+        this.open_elements.splice(index);
+        return;
+      }
+      if (this._is_special_element(node)) {
+        this._parse_error("unexpected-end-tag", name);
+        return;
+      }
+      index -= 1;
+    }
+  }
+
   _generate_implied_end_tags(exclude = null) {
     while (this.open_elements.length) {
       const node = this.open_elements[this.open_elements.length - 1];
@@ -625,6 +669,36 @@ export class TreeBuilder {
     for (let idx = this.open_elements.length - 1; idx >= 0; idx -= 1) {
       const node = this.open_elements[idx];
       const name = node.name;
+      if (name === "select") {
+        this.mode = InsertionMode.IN_SELECT;
+        return;
+      }
+      if (name === "td" || name === "th") {
+        this.mode = InsertionMode.IN_CELL;
+        return;
+      }
+      if (name === "tr") {
+        this.mode = InsertionMode.IN_ROW;
+        return;
+      }
+      if (name === "tbody" || name === "tfoot" || name === "thead") {
+        this.mode = InsertionMode.IN_TABLE_BODY;
+        return;
+      }
+      if (name === "caption") {
+        this.mode = InsertionMode.IN_CAPTION;
+        return;
+      }
+      if (name === "table") {
+        this.mode = InsertionMode.IN_TABLE;
+        return;
+      }
+      if (name === "template") {
+        if (this.template_modes.length) {
+          this.mode = this.template_modes[this.template_modes.length - 1];
+          return;
+        }
+      }
       if (name === "head") {
         this.mode = InsertionMode.IN_HEAD;
         return;
@@ -721,6 +795,7 @@ export class TreeBuilder {
       this.document.remove_child(root);
     }
 
+    this._populate_selectedcontent(this.document);
     return this.document;
   }
 
@@ -748,16 +823,29 @@ export class TreeBuilder {
     }
 
     if (!this.open_elements.length) return;
-    const target = this._current_node_or_html();
-    let parent = target;
-    if (isTemplateNode(parent)) parent = parent.templateContent;
 
-    const children = parent.children;
-    if (children.length && children[children.length - 1].name === "#text") {
-      children[children.length - 1].data = (children[children.length - 1].data || "") + text;
+    const target = this.open_elements[this.open_elements.length - 1];
+    if (!TABLE_FOSTER_TARGETS.has(target.name) && !isTemplateNode(target)) {
+      const children = target.children;
+      if (children.length && children[children.length - 1].name === "#text") {
+        children[children.length - 1].data = (children[children.length - 1].data || "") + text;
+        return;
+      }
+      target.append_child(new Node("#text", { data: text, namespace: null }));
       return;
     }
-    parent.append_child(new Node("#text", { data: text, namespace: null }));
+
+    const adjustedTarget = this._current_node_or_html();
+    const foster = this._should_foster_parenting(adjustedTarget, { isText: true });
+    if (foster) this._reconstruct_active_formatting_elements();
+
+    const [parent, position] = this._appropriate_insertion_location(null, { foster_parenting: foster });
+    if (position > 0 && parent.children[position - 1]?.name === "#text") {
+      parent.children[position - 1].data = (parent.children[position - 1].data || "") + text;
+      return;
+    }
+
+    this._insert_node_at(parent, position, new Node("#text", { data: text, namespace: null }));
   }
 
   _current_node_or_html() {
@@ -824,6 +912,145 @@ export class TreeBuilder {
     node.attrs = existing;
   }
 
+  _remove_from_open_elements(node) {
+    for (let index = 0; index < this.open_elements.length; index += 1) {
+      if (this.open_elements[index] === node) {
+        this.open_elements.splice(index, 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _is_special_element(node) {
+    if (node.namespace != null && node.namespace !== "html") return false;
+    return SPECIAL_ELEMENTS.has(node.name);
+  }
+
+  _find_active_formatting_index(name) {
+    for (let index = this.active_formatting.length - 1; index >= 0; index -= 1) {
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER) break;
+      if (entry.name === name) return index;
+    }
+    return null;
+  }
+
+  _find_active_formatting_index_by_node(node) {
+    for (let index = this.active_formatting.length - 1; index >= 0; index -= 1) {
+      const entry = this.active_formatting[index];
+      if (entry !== FORMAT_MARKER && entry.node === node) return index;
+    }
+    return null;
+  }
+
+  _clone_attributes(attrs) {
+    return attrs ? { ...attrs } : {};
+  }
+
+  _attrs_signature(attrs) {
+    if (!attrs) return "";
+    const keys = Object.keys(attrs);
+    if (!keys.length) return "";
+    keys.sort();
+    let out = "";
+    for (const key of keys) {
+      const value = attrs[key] || "";
+      out += `${key}\u0000${value}\u0001`;
+    }
+    return out;
+  }
+
+  _find_active_formatting_duplicate(name, attrs) {
+    const signature = this._attrs_signature(attrs);
+    const matches = [];
+    for (let index = 0; index < this.active_formatting.length; index += 1) {
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER) {
+        matches.length = 0;
+        continue;
+      }
+      if (entry.name === name && entry.signature === signature) matches.push(index);
+    }
+    if (matches.length >= 3) return matches[0];
+    return null;
+  }
+
+  _has_active_formatting_entry(name) {
+    for (let index = this.active_formatting.length - 1; index >= 0; index -= 1) {
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER) break;
+      if (entry.name === name) return true;
+    }
+    return false;
+  }
+
+  _remove_last_active_formatting_by_name(name) {
+    for (let index = this.active_formatting.length - 1; index >= 0; index -= 1) {
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER) break;
+      if (entry.name === name) {
+        this.active_formatting.splice(index, 1);
+        return;
+      }
+    }
+  }
+
+  _remove_last_open_element_by_name(name) {
+    for (let index = this.open_elements.length - 1; index >= 0; index -= 1) {
+      if (this.open_elements[index].name === name) {
+        this.open_elements.splice(index, 1);
+        return;
+      }
+    }
+  }
+
+  _append_active_formatting_entry(name, attrs, node) {
+    const entryAttrs = this._clone_attributes(attrs);
+    this.active_formatting.push({
+      name,
+      attrs: entryAttrs,
+      node,
+      signature: this._attrs_signature(entryAttrs),
+    });
+  }
+
+  _remove_formatting_entry(index) {
+    if (index < 0 || index >= this.active_formatting.length) throw new Error(`Invalid formatting index: ${index}`);
+    this.active_formatting.splice(index, 1);
+  }
+
+  _reconstruct_active_formatting_elements() {
+    if (!this.active_formatting.length) return;
+    const lastEntry = this.active_formatting[this.active_formatting.length - 1];
+    if (lastEntry === FORMAT_MARKER) return;
+    if (this.open_elements.includes(lastEntry.node)) return;
+
+    let index = this.active_formatting.length - 1;
+    while (true) {
+      index -= 1;
+      if (index < 0) break;
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER || this.open_elements.includes(entry.node)) {
+        index += 1;
+        break;
+      }
+    }
+    if (index < 0) index = 0;
+
+    while (index < this.active_formatting.length) {
+      const entry = this.active_formatting[index];
+      if (entry === FORMAT_MARKER) {
+        index += 1;
+        continue;
+      }
+      const tag = new Tag(Tag.START, entry.name, this._clone_attributes(entry.attrs), false);
+      const newNode = this._insert_element(tag, { push: true });
+      entry.node = newNode;
+      index += 1;
+    }
+  }
+
   _find_last_on_stack(name) {
     for (let idx = this.open_elements.length - 1; idx >= 0; idx -= 1) {
       const node = this.open_elements[idx];
@@ -860,6 +1087,144 @@ export class TreeBuilder {
 
   _has_in_table_scope(name) {
     return this._has_element_in_scope(name, TABLE_SCOPE_TERMINATORS, false);
+  }
+
+  _clear_stack_until(names) {
+    while (this.open_elements.length) {
+      const node = this.open_elements[this.open_elements.length - 1];
+      if ((node.namespace == null || node.namespace === "html") && names.has(node.name)) break;
+      this.open_elements.pop();
+    }
+  }
+
+  _close_table_cell() {
+    if (this._has_in_table_scope("td")) {
+      this._end_table_cell("td");
+      return true;
+    }
+    if (this._has_in_table_scope("th")) {
+      this._end_table_cell("th");
+      return true;
+    }
+    return false;
+  }
+
+  _end_table_cell(name) {
+    this._generate_implied_end_tags(name);
+    while (this.open_elements.length) {
+      const node = this.open_elements.pop();
+      if (node.name === name && (node.namespace == null || node.namespace === "html")) break;
+    }
+    this._clear_active_formatting_up_to_marker();
+    this.mode = InsertionMode.IN_ROW;
+  }
+
+  _flush_pending_table_text() {
+    const data = this.pending_table_text.join("");
+    this.pending_table_text.length = 0;
+    if (!data) return;
+    if (isAllWhitespace(data)) {
+      this._append_text(data);
+      return;
+    }
+    this._parse_error("foster-parenting-character");
+    const previous = this.insert_from_table;
+    this.insert_from_table = true;
+    try {
+      this._reconstruct_active_formatting_elements();
+      this._append_text(data);
+    } finally {
+      this.insert_from_table = previous;
+    }
+  }
+
+  _close_table_element() {
+    if (!this._has_in_table_scope("table")) {
+      this._parse_error("unexpected-end-tag", "table");
+      return false;
+    }
+    this._generate_implied_end_tags();
+    while (this.open_elements.length) {
+      const node = this.open_elements.pop();
+      if (node.name === "table") break;
+    }
+    this._reset_insertion_mode();
+    return true;
+  }
+
+  _has_in_scope(name) {
+    return this._has_element_in_scope(name, DEFAULT_SCOPE_TERMINATORS);
+  }
+
+  _has_in_list_item_scope(name) {
+    return this._has_element_in_scope(name, LIST_ITEM_SCOPE_TERMINATORS);
+  }
+
+  _has_in_definition_scope(name) {
+    return this._has_element_in_scope(name, DEFINITION_SCOPE_TERMINATORS);
+  }
+
+  _has_any_in_scope(names) {
+    const terminators = DEFAULT_SCOPE_TERMINATORS;
+    for (let idx = this.open_elements.length - 1; idx >= 0; idx -= 1) {
+      const node = this.open_elements[idx];
+      if (names.has(node.name)) return true;
+      if ((node.namespace == null || node.namespace === "html") && terminators.has(node.name)) return false;
+    }
+    return false;
+  }
+
+  _populate_selectedcontent(root) {
+    const selects = [];
+    this._find_elements(root, "select", selects);
+    for (const select of selects) {
+      const selectedcontent = this._find_element(select, "selectedcontent");
+      if (!selectedcontent) continue;
+
+      const options = [];
+      this._find_elements(select, "option", options);
+      if (!options.length) continue;
+
+      let selectedOption = null;
+      for (const opt of options) {
+        const attrs = opt.attrs || {};
+        if (Object.prototype.hasOwnProperty.call(attrs, "selected")) {
+          selectedOption = opt;
+          break;
+        }
+      }
+      if (!selectedOption) selectedOption = options[0];
+
+      this._clone_children(selectedOption, selectedcontent);
+    }
+  }
+
+  _find_elements(node, name, result) {
+    if (!node) return;
+    if (node.name === name) result.push(node);
+
+    for (const child of node.children || []) this._find_elements(child, name, result);
+    const templateContent = node.templateContent ?? node.template_content ?? null;
+    if (templateContent) this._find_elements(templateContent, name, result);
+  }
+
+  _find_element(node, name) {
+    if (!node) return null;
+    if (node.name === name) return node;
+
+    for (const child of node.children || []) {
+      const found = this._find_element(child, name);
+      if (found) return found;
+    }
+    const templateContent = node.templateContent ?? node.template_content ?? null;
+    if (templateContent) return this._find_element(templateContent, name);
+    return null;
+  }
+
+  _clone_children(source, target) {
+    for (const child of source.children || []) {
+      target.append_child(child.cloneNode(true));
+    }
   }
 
   _should_foster_parenting(target, { forTag = null, isText = false } = {}) {
@@ -1056,4 +1421,3 @@ export class TreeBuilder {
     return null;
   }
 }
-
