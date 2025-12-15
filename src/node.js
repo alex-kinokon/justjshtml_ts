@@ -1,5 +1,6 @@
 import { toHTML } from "./serialize.js";
 import { query } from "./selector.js";
+import { toMarkdown } from "./markdown.js";
 
 export class Node {
   constructor(name, { attrs = null, data = null, namespace = "html" } = {}) {
@@ -110,6 +111,14 @@ export class Node {
 
   query(selector) {
     return query(this, selector);
+  }
+
+  toMarkdown() {
+    return toMarkdown(this);
+  }
+
+  to_markdown() {
+    return this.toMarkdown();
   }
 
   cloneNode(deep = false) {

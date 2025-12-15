@@ -79,4 +79,12 @@ export class JustHTML {
   query(selector) {
     return this.root.query(selector);
   }
+
+  toMarkdown() {
+    return this.root.toMarkdown();
+  }
+
+  to_markdown() {
+    return this.toMarkdown();
+  }
 }
