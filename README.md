@@ -163,6 +163,8 @@ This repository was developed as a test-driven port of `justhtml`:
 - Used the official `html5lib-tests` data as the main correctness target, with GitHub Actions running the suite on every push/PR (`.github/workflows/test.yml`)
 - Added a browser playground (`playground.html`) that imports the raw ES modules directly from `./src/`
 
+The library was built using OpenAI Codex CLI and GPT-5.2. See [issue #1](https://github.com/simonw/justjshtml/issues/1) for prompts and transcripts.
+
 ## Running tests locally
 
 Check out fixtures:
