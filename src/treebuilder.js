@@ -1147,6 +1147,12 @@ function modeAfterBody(self, token) {
 
 function modeAfterAfterBody(self, token) {
   if (token instanceof CommentToken) {
+    if (self.fragment_context != null) {
+      const html = self._find_last_on_stack("html");
+      if (html) self._append_comment(token.data, html);
+      else self._append_comment_to_document(token.data);
+      return null;
+    }
     self._append_comment_to_document(token.data);
     return null;
   }
@@ -2374,23 +2380,68 @@ export class TreeBuilder {
       const currentNode = this.open_elements.length ? this.open_elements[this.open_elements.length - 1] : null;
       const isHtmlNamespace = currentNode == null || currentNode.namespace == null || currentNode.namespace === "html";
 
-      if (!forceHtmlMode && !isHtmlNamespace && this._should_use_foreign_content(currentToken)) {
-        const result = this._process_foreign_content(currentToken);
-        if (result == null) {
-          const out = this.tokenizer_state_override ?? TokenSinkResult.Continue;
-          this.tokenizer_state_override = null;
-          return out;
-        }
-        const [, mode, tokenOverride, forceHtml] = result;
-        this.mode = mode;
-        currentToken = tokenOverride;
-        forceHtmlMode = Boolean(forceHtml);
-        continue;
-      }
+      let result = null;
 
-      forceHtmlMode = false;
-      const handler = MODE_HANDLERS[this.mode] || modeFallbackToBody;
-      const result = handler(this, currentToken);
+      if (forceHtmlMode || isHtmlNamespace) {
+        forceHtmlMode = false;
+        const handler = MODE_HANDLERS[this.mode] || modeFallbackToBody;
+        result = handler(this, currentToken);
+      } else if (this._should_use_foreign_content(currentToken)) {
+        result = this._process_foreign_content(currentToken);
+      } else {
+        if (currentToken instanceof CharacterToken && this._is_mathml_text_integration_point(currentNode)) {
+          let data = currentToken.data || "";
+          if (data.includes("\x00")) {
+            this._parse_error("invalid-codepoint");
+            data = data.replaceAll("\x00", "");
+          }
+          if (data.includes("\x0c")) {
+            this._parse_error("invalid-codepoint");
+            data = data.replaceAll("\x0c", "");
+          }
+          if (data) {
+            if (!isAllWhitespace(data)) {
+              this._reconstruct_active_formatting_elements();
+              this.frameset_ok = false;
+            }
+            this._append_text(data);
+          }
+          result = null;
+        } else {
+          const isIntegrationPoint =
+            this._is_mathml_text_integration_point(currentNode) || this._is_html_integration_point(currentNode);
+
+          if (
+            isIntegrationPoint &&
+            currentToken instanceof Tag &&
+            currentToken.kind === Tag.START &&
+            this.mode !== InsertionMode.IN_BODY
+          ) {
+            const isTableMode =
+              this.mode === InsertionMode.IN_TABLE ||
+              this.mode === InsertionMode.IN_TABLE_BODY ||
+              this.mode === InsertionMode.IN_ROW ||
+              this.mode === InsertionMode.IN_CELL ||
+              this.mode === InsertionMode.IN_CAPTION ||
+              this.mode === InsertionMode.IN_COLUMN_GROUP;
+            const hasTableInScope = this._has_in_table_scope("table");
+
+            if (isTableMode && !hasTableInScope) {
+              const savedMode = this.mode;
+              this.mode = InsertionMode.IN_BODY;
+              const handler = MODE_HANDLERS[this.mode] || modeFallbackToBody;
+              result = handler(this, currentToken);
+              if (this.mode === InsertionMode.IN_BODY) this.mode = savedMode;
+            } else {
+              const handler = MODE_HANDLERS[this.mode] || modeFallbackToBody;
+              result = handler(this, currentToken);
+            }
+          } else {
+            const handler = MODE_HANDLERS[this.mode] || modeFallbackToBody;
+            result = handler(this, currentToken);
+          }
+        }
+      }
 
       if (result == null) {
         const out = this.tokenizer_state_override ?? TokenSinkResult.Continue;
