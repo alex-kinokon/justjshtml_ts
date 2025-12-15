@@ -451,6 +451,7 @@ export class Tokenizer {
     tag.attrs = attrs;
     tag.selfClosing = this.currentTagSelfClosing;
 
+    let switchedToRawtext = false;
     if (this.currentTagKind === Tag.START) {
       this.lastStartTagName = name;
 
@@ -464,18 +465,24 @@ export class Tokenizer {
           if (RCDATA_ELEMENTS.has(name)) {
             this.state = Tokenizer.RCDATA;
             this.rawtextTagName = name;
+            switchedToRawtext = true;
           } else if (RAWTEXT_SWITCH_TAGS.has(name)) {
             this.state = Tokenizer.RAWTEXT;
             this.rawtextTagName = name;
+            switchedToRawtext = true;
           } else {
             this.state = Tokenizer.PLAINTEXT;
+            switchedToRawtext = true;
           }
         }
       }
     }
 
     const result = this.sink.processToken(tag);
-    if (result === TokenSinkResult.Plaintext) this.state = Tokenizer.PLAINTEXT;
+    if (result === TokenSinkResult.Plaintext) {
+      this.state = Tokenizer.PLAINTEXT;
+      switchedToRawtext = true;
+    }
 
     this.currentTagName.length = 0;
     this.currentTagAttrs = {};
@@ -484,6 +491,7 @@ export class Tokenizer {
     this.currentAttrValueHasAmp = false;
     this.currentTagSelfClosing = false;
     this.currentTagKind = Tag.START;
+    return switchedToRawtext;
   }
 
   _emitComment() {
@@ -668,8 +676,7 @@ export class Tokenizer {
     }
 
     if (c === ">") {
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -700,8 +707,7 @@ export class Tokenizer {
     }
 
     if (c === ">") {
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -747,8 +753,7 @@ export class Tokenizer {
 
     if (c === ">") {
       this._finishAttribute();
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -784,8 +789,7 @@ export class Tokenizer {
     }
 
     if (c === ">") {
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -819,8 +823,7 @@ export class Tokenizer {
     if (c === ">") {
       this._emitError("missing-attribute-value");
       this._finishAttribute();
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -898,8 +901,7 @@ export class Tokenizer {
 
     if (c === ">") {
       this._finishAttribute();
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -932,8 +934,7 @@ export class Tokenizer {
     }
 
     if (c === ">") {
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
@@ -954,8 +955,7 @@ export class Tokenizer {
 
     if (c === ">") {
       this.currentTagSelfClosing = true;
-      this._emitCurrentTag();
-      this.state = Tokenizer.DATA;
+      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
       return false;
     }
 
