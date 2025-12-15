@@ -982,7 +982,19 @@ export class Tokenizer {
     }
 
     if (this._consumeIf("[CDATA[")) {
-      // Only valid in foreign content; treat as bogus comment in HTML context.
+      // CDATA sections are only valid in foreign content (SVG/MathML).
+      // Tokenizer consults the current treebuilder stack to decide.
+      const stack = this.sink?.open_elements;
+      if (Array.isArray(stack) && stack.length) {
+        const current = stack[stack.length - 1];
+        const ns = current?.namespace ?? null;
+        if (ns && ns !== "html") {
+          this.state = Tokenizer.CDATA_SECTION;
+          return false;
+        }
+      }
+
+      // Treat as bogus comment in HTML context, preserving "[CDATA[" prefix.
       this._emitError("cdata-in-html-content");
       this.currentComment.length = 0;
       this.currentComment.push(..."[CDATA[");
