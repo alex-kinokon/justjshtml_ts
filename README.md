@@ -67,9 +67,11 @@ Then open `http://localhost:8000/example.html`.
 
 ## Playground
 
+You can access the interactive playground at https://simonw.github.io/justjshtml/playground.html
+
 `playground.html` is a browser UI equivalent to the Pyodide-based JustHTML playground at `https://tools.simonwillison.net/justhtml`, but powered by this JavaScript library.
 
-Run:
+TO run locally:
 
 ```bash
 python3 -m http.server
