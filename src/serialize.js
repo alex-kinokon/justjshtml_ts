@@ -53,7 +53,8 @@ function attrsToTestFormat(node, indent, { foreignAttributeAdjustments = null } 
     displayAttrs.push([displayName, String(value)]);
   }
 
-  displayAttrs.sort((a, b) => a[0].localeCompare(b[0]));
+  // Match Python's default string sort (Unicode code point order), not locale collation.
+  displayAttrs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return displayAttrs.map(([name, value]) => `| ${padding}${name}="${value}"`);
 }
 
