@@ -63,4 +63,16 @@ export class JustHTML {
   toText(options) {
     return this.root.toText(options);
   }
+
+  to_text(options) {
+    return this.toText(options);
+  }
+
+  toHTML(options) {
+    return this.root.toHTML(options);
+  }
+
+  to_html(indent = 0, indentSize = 2, pretty = true) {
+    return this.toHTML({ indent, indentSize, pretty });
+  }
 }

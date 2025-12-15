@@ -1,3 +1,5 @@
+import { toHTML } from "./serialize.js";
+
 export class Node {
   constructor(name, { attrs = null, data = null, namespace = "html" } = {}) {
     this.name = name;
@@ -91,6 +93,18 @@ export class Node {
 
     walk(this);
     return parts.join(separator);
+  }
+
+  to_text(options) {
+    return this.toText(options);
+  }
+
+  toHTML(options) {
+    return toHTML(this, options);
+  }
+
+  to_html(indent = 0, indentSize = 2, pretty = true) {
+    return this.toHTML({ indent, indentSize, pretty });
   }
 
   cloneNode(deep = false) {
