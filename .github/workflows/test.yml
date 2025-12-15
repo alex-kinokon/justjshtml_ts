@@ -19,3 +19,4 @@ jobs:
           path: tests/html5lib-tests
       - run: node scripts/run-encoding-tests.js
       - run: node scripts/run-tokenizer-tests.js
+      - run: node scripts/run-tree-construction-tests.js
