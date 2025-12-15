@@ -58,20 +58,35 @@ function decodeEscapes(text) {
   return out;
 }
 
-function isTestSelected(filename, index, specs) {
+function isTestSelected(fileRel, filename, index, specs) {
   if (!specs.length) return true;
 
   for (const spec of specs) {
     if (spec.includes(":")) {
       const [filePart, indicesPart] = spec.split(":", 2);
-      if (!filename.includes(filePart)) continue;
+      if (!fileRel.includes(filePart) && !filename.includes(filePart)) continue;
       const wanted = new Set(indicesPart.split(",").filter(Boolean).map((s) => Number.parseInt(s, 10)));
       return wanted.has(index);
     }
-    if (filename.includes(spec)) return true;
+    if (fileRel.includes(spec) || filename.includes(spec)) return true;
   }
 
   return false;
+}
+
+async function listDatFiles(dir) {
+  const out = [];
+  async function walk(d) {
+    const entries = await readdir(d, { withFileTypes: true });
+    for (const ent of entries) {
+      const full = path.join(d, ent.name);
+      if (ent.isDirectory()) await walk(full);
+      else if (ent.isFile() && ent.name.endsWith(".dat")) out.push(full);
+    }
+  }
+  await walk(dir);
+  out.sort();
+  return out;
 }
 
 function compareOutputs(expected, actual) {
@@ -167,11 +182,7 @@ async function main() {
   const testsDir = path.resolve(REPO_ROOT, args.testsDir || process.env.HTML5LIB_TESTS_DIR || "tests/html5lib-tests");
   const dir = path.join(testsDir, "tree-construction");
 
-  const entries = await readdir(dir, { withFileTypes: true });
-  const datFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".dat"))
-    .map((e) => e.name)
-    .sort();
+  const datFiles = await listDatFiles(dir);
 
   if (!datFiles.length) {
     console.error(`No tree-construction fixtures found under: ${dir}`);
@@ -181,20 +192,25 @@ async function main() {
   let total = 0;
   let passed = 0;
   let failed = 0;
+  let skipped = 0;
 
-  for (const filename of datFiles) {
-    const filePath = path.join(dir, filename);
+  for (const filePath of datFiles) {
+    const filename = path.basename(filePath);
+    const fileRel = path.relative(testsDir, filePath);
     const content = await readFile(filePath, "utf8");
     const tests = parseDatFile(content);
 
     for (let idx = 0; idx < tests.length; idx += 1) {
       const test = tests[idx];
-      if (!isTestSelected(filename, idx, args.testSpecs)) continue;
-
-      // Skip script-on until scripting flag is implemented.
-      if (test.scriptDirective === "script-on") continue;
+      if (!isTestSelected(fileRel, filename, idx, args.testSpecs)) continue;
 
       total += 1;
+
+      // Skip script-on until scripting flag is implemented.
+      if (test.scriptDirective === "script-on") {
+        skipped += 1;
+        continue;
+      }
 
       const doc = new JustHTML(test.input, {
         fragmentContext: test.fragmentContext || null,
@@ -207,7 +223,7 @@ async function main() {
         passed += 1;
       } else {
         failed += 1;
-        console.error(`TREE FAIL: ${filename}:${idx}`.trim());
+        console.error(`TREE FAIL: ${fileRel}:${idx}`.trim());
         if (args.show) {
           console.error("\nINPUT:\n" + test.input + "\n");
           console.error("EXPECTED:\n" + test.expected + "\n");
@@ -217,7 +233,7 @@ async function main() {
     }
   }
 
-  console.log(`tree: ${passed}/${total} passed, ${failed} failed`);
+  console.log(`tree: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped`);
   process.exit(failed ? 1 : 0);
 }
 
