@@ -120,8 +120,7 @@ async function main() {
   let skipped = 0;
 
   for (const file of testFiles) {
-    if (file.split(path.sep).includes("scripted")) continue;
-
+    const isScripted = file.split(path.sep).includes("scripted");
     const buf = await readFile(file);
     const tests = parseEncodingDatFile(buf);
 
@@ -131,6 +130,11 @@ async function main() {
 
       const expected = normalizeEncodingLabel(expectedLabel);
       if (expected == null) {
+        skipped += 1;
+        continue;
+      }
+
+      if (isScripted) {
         skipped += 1;
         continue;
       }
