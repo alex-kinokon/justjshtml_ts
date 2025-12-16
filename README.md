@@ -176,8 +176,12 @@ Check out fixtures:
 ```bash
 git clone https://github.com/html5lib/html5lib-tests tests/html5lib-tests
 ```
+You can run the tests with [Just](https://github.com/casey/just):
 
-Run:
+```bash
+just
+```
+Or manually like this:
 
 ```bash
 node scripts/smoke.js
