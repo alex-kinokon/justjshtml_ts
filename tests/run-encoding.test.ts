@@ -51,7 +51,9 @@ function bytesEqual(a, b) {
 }
 
 const BYTES_HASH_DATA = new Uint8Array([0x23, 0x64, 0x61, 0x74, 0x61]); // #data
-const BYTES_HASH_ENCODING = new Uint8Array([0x23, 0x65, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67]); // #encoding
+const BYTES_HASH_ENCODING = new Uint8Array([
+  0x23, 0x65, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67,
+]); // #encoding
 
 function parseEncodingDatFile(buf) {
   const tests = [];
@@ -105,7 +107,10 @@ async function listDatFiles(dir) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const testsDir = path.resolve(REPO_ROOT, args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests");
+  const testsDir = path.resolve(
+    REPO_ROOT,
+    args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests"
+  );
   const encodingDir = path.join(testsDir, "encoding");
 
   const testFiles = await listDatFiles(encodingDir);
@@ -152,7 +157,9 @@ async function main() {
     }
   }
 
-  console.log(`encoding: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped`);
+  console.log(
+    `encoding: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped`
+  );
   process.exit(failed ? 1 : 0);
 }
 

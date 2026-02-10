@@ -70,7 +70,7 @@ results.push(
     const root = getSimpleDoc();
     const out = query(root, "p");
     assert.equal(out.length, 2);
-    assert.ok(out.every((n) => n.name === "p"));
+    assert.ok(out.every(n => n.name === "p"));
   })
 );
 
@@ -157,7 +157,7 @@ results.push(
     const out = query(root, "p.first ~ p");
     assert.equal(out.length, 3);
     assert.deepEqual(
-      out.map((n) => n.attrs.class),
+      out.map(n => n.attrs.class),
       ["second", "third", "fourth"]
     );
   })
@@ -197,10 +197,7 @@ results.push(
     const root = getEmptyDoc();
     const out = query(root, "div:empty");
     assert.equal(out.length, 2);
-    assert.deepEqual(
-      out.map((n) => n.attrs.class).sort(),
-      ["empty", "whitespace"]
-    );
+    assert.deepEqual(out.map(n => n.attrs.class).sort(), ["empty", "whitespace"]);
   })
 );
 
@@ -231,15 +228,16 @@ results.push(
   })
 );
 
-const failed = results.filter((r) => !r.ok);
+const failed = results.filter(r => !r.ok);
 if (failed.length) {
   for (const r of failed) {
     console.error(`selector FAIL: ${r.name}`);
     console.error(r.err);
   }
-  console.error(`selector: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`);
+  console.error(
+    `selector: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`
+  );
   process.exit(1);
 }
 
 console.log(`selector: ${results.length}/${results.length} passed`);
-

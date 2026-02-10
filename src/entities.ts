@@ -299,4 +299,3 @@ export function decodeEntitiesInText(text, { inAttribute = false } = {}) {
 
   return result.join("");
 }
-

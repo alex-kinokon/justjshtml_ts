@@ -13,11 +13,18 @@ export function parseDocument(html, options = {}) {
   const treeBuilder = new TreeBuilder(fragmentContext, iframeSrcdoc, shouldCollect);
   treeBuilder.openElements = treeBuilder.open_elements;
 
-  const opts = tokenizerOpts instanceof TokenizerOpts ? tokenizerOpts : new TokenizerOpts(tokenizerOpts || {});
+  const opts =
+    tokenizerOpts instanceof TokenizerOpts
+      ? tokenizerOpts
+      : new TokenizerOpts(tokenizerOpts || {});
 
   // Match justhtml's fragment tokenizer state overrides.
   if (fragmentContext && !fragmentContext.namespace) {
-    const tagName = (fragmentContext.tag_name || fragmentContext.tagName || "").toLowerCase();
+    const tagName = (
+      fragmentContext.tag_name ||
+      fragmentContext.tagName ||
+      ""
+    ).toLowerCase();
     if (tagName === "textarea" || tagName === "title" || tagName === "style") {
       opts.initialState = Tokenizer.RAWTEXT;
       opts.initialRawtextTag = tagName;

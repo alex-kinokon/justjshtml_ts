@@ -144,7 +144,9 @@ function nsKey(ns, name) {
   return `${prefix}\u0000${name}`;
 }
 
-export const HTML_INTEGRATION_POINT_SET = new Set(htmlIntegrationPointElements.map(([ns, name]) => nsKey(ns, name)));
+export const HTML_INTEGRATION_POINT_SET = new Set(
+  htmlIntegrationPointElements.map(([ns, name]) => nsKey(ns, name))
+);
 export const MATHML_TEXT_INTEGRATION_POINT_SET = new Set(
   mathmlTextIntegrationPointElements.map(([ns, name]) => nsKey(ns, name))
 );
@@ -207,13 +209,25 @@ export const QUIRKY_PUBLIC_PREFIXES = [
   "-//webtechs//dtd mozilla html//",
 ];
 
-export const QUIRKY_PUBLIC_MATCHES = ["-//w3o//dtd w3 html strict 3.0//en//", "-/w3c/dtd html 4.0 transitional/en", "html"];
+export const QUIRKY_PUBLIC_MATCHES = [
+  "-//w3o//dtd w3 html strict 3.0//en//",
+  "-/w3c/dtd html 4.0 transitional/en",
+  "html",
+];
 
-export const QUIRKY_SYSTEM_MATCHES = ["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
+export const QUIRKY_SYSTEM_MATCHES = [
+  "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd",
+];
 
-export const LIMITED_QUIRKY_PUBLIC_PREFIXES = ["-//w3c//dtd xhtml 1.0 frameset//", "-//w3c//dtd xhtml 1.0 transitional//"];
+export const LIMITED_QUIRKY_PUBLIC_PREFIXES = [
+  "-//w3c//dtd xhtml 1.0 frameset//",
+  "-//w3c//dtd xhtml 1.0 transitional//",
+];
 
-export const HTML4_PUBLIC_PREFIXES = ["-//w3c//dtd html 4.01 frameset//", "-//w3c//dtd html 4.01 transitional//"];
+export const HTML4_PUBLIC_PREFIXES = [
+  "-//w3c//dtd html 4.01 frameset//",
+  "-//w3c//dtd html 4.01 transitional//",
+];
 
 export const HEADING_ELEMENTS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 
@@ -323,9 +337,23 @@ export const SPECIAL_ELEMENTS = new Set([
 
 export const FORMAT_MARKER = Symbol("format-marker");
 
-export const DEFAULT_SCOPE_TERMINATORS = new Set(["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"]);
+export const DEFAULT_SCOPE_TERMINATORS = new Set([
+  "applet",
+  "caption",
+  "html",
+  "table",
+  "td",
+  "th",
+  "marquee",
+  "object",
+  "template",
+]);
 export const BUTTON_SCOPE_TERMINATORS = new Set([...DEFAULT_SCOPE_TERMINATORS, "button"]);
-export const LIST_ITEM_SCOPE_TERMINATORS = new Set([...DEFAULT_SCOPE_TERMINATORS, "ol", "ul"]);
+export const LIST_ITEM_SCOPE_TERMINATORS = new Set([
+  ...DEFAULT_SCOPE_TERMINATORS,
+  "ol",
+  "ul",
+]);
 export const DEFINITION_SCOPE_TERMINATORS = new Set([...DEFAULT_SCOPE_TERMINATORS, "dl"]);
 
 export const TABLE_FOSTER_TARGETS = new Set(["table", "tbody", "tfoot", "thead", "tr"]);
@@ -392,11 +420,36 @@ export const TABLE_ALLOWED_CHILDREN = new Set([
 ]);
 
 export const TABLE_SCOPE_TERMINATORS = new Set(["html", "table", "template"]);
-export const IMPLIED_END_TAGS = new Set(["dd", "dt", "li", "option", "optgroup", "p", "rb", "rp", "rt", "rtc"]);
+export const IMPLIED_END_TAGS = new Set([
+  "dd",
+  "dt",
+  "li",
+  "option",
+  "optgroup",
+  "p",
+  "rb",
+  "rp",
+  "rt",
+  "rtc",
+]);
 
-export const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+export const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 export function integrationPointKey(namespace, name) {
   return `${namespace}\u0000${name}`;
 }
-

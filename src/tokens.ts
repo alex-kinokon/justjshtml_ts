@@ -23,7 +23,12 @@ export class CommentToken {
 }
 
 export class Doctype {
-  constructor({ name = null, publicId = null, systemId = null, forceQuirks = false } = {}) {
+  constructor({
+    name = null,
+    publicId = null,
+    systemId = null,
+    forceQuirks = false,
+  } = {}) {
     this.name = name;
     this.publicId = publicId;
     this.systemId = systemId;
@@ -53,8 +58,8 @@ export class ParseError {
   }
 
   toString() {
-    if (this.line != null && this.column != null) return `(${this.line},${this.column}): ${this.code}`;
+    if (this.line != null && this.column != null)
+      return `(${this.line},${this.column}): ${this.code}`;
     return this.code;
   }
 }
-

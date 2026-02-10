@@ -1,5 +1,13 @@
 import { decodeEntitiesInText } from "./entities.js";
-import { CharacterToken, CommentToken, Doctype, DoctypeToken, EOFToken, Tag, TokenSinkResult } from "./tokens.js";
+import {
+  CharacterToken,
+  CommentToken,
+  Doctype,
+  DoctypeToken,
+  EOFToken,
+  Tag,
+  TokenSinkResult,
+} from "./tokens.js";
 
 function isWhitespace(c) {
   return c === "\t" || c === "\n" || c === "\f" || c === " " || c === "\r";
@@ -52,10 +60,24 @@ function coerceCommentForXML(text) {
 }
 
 const RCDATA_ELEMENTS = new Set(["title", "textarea"]);
-const RAWTEXT_SWITCH_TAGS = new Set(["script", "style", "xmp", "iframe", "noembed", "noframes", "textarea", "title"]);
+const RAWTEXT_SWITCH_TAGS = new Set([
+  "script",
+  "style",
+  "xmp",
+  "iframe",
+  "noembed",
+  "noframes",
+  "textarea",
+  "title",
+]);
 
 export class TokenizerOpts {
-  constructor({ initialState = null, initialRawtextTag = null, discardBom = true, xmlCoercion = false } = {}) {
+  constructor({
+    initialState = null,
+    initialRawtextTag = null,
+    discardBom = true,
+    xmlCoercion = false,
+  } = {}) {
     this.initialState = initialState;
     this.initialRawtextTag = initialRawtextTag;
     this.discardBom = Boolean(discardBom);
@@ -395,7 +417,8 @@ export class Tokenizer {
     // - decode character references in DATA/RCDATA and similar (< RAWTEXT)
     // - do not decode in RAWTEXT/PLAINTEXT/script states or CDATA
     const state = this.state;
-    const inCDATA = state >= Tokenizer.CDATA_SECTION && state <= Tokenizer.CDATA_SECTION_END;
+    const inCDATA =
+      state >= Tokenizer.CDATA_SECTION && state <= Tokenizer.CDATA_SECTION_END;
     if (!inCDATA && state < Tokenizer.RAWTEXT && state < Tokenizer.PLAINTEXT) {
       if (data.includes("&")) data = decodeEntitiesInText(data);
     }
@@ -435,7 +458,8 @@ export class Tokenizer {
     if (this.currentAttrValue.length) value = this.currentAttrValue.join("");
     this.currentAttrValue.length = 0;
 
-    if (this.currentAttrValueHasAmp) value = decodeEntitiesInText(value, { inAttribute: true });
+    if (this.currentAttrValueHasAmp)
+      value = decodeEntitiesInText(value, { inAttribute: true });
     this.currentAttrValueHasAmp = false;
 
     this.currentTagAttrs[name] = value;
@@ -504,8 +528,10 @@ export class Tokenizer {
 
   _emitDoctype() {
     const name = this.currentDoctypeName.length ? this.currentDoctypeName.join("") : null;
-    const publicId = this.currentDoctypePublic != null ? this.currentDoctypePublic.join("") : null;
-    const systemId = this.currentDoctypeSystem != null ? this.currentDoctypeSystem.join("") : null;
+    const publicId =
+      this.currentDoctypePublic != null ? this.currentDoctypePublic.join("") : null;
+    const systemId =
+      this.currentDoctypeSystem != null ? this.currentDoctypeSystem.join("") : null;
 
     const doctype = new Doctype({
       name,
@@ -1267,7 +1293,8 @@ export class Tokenizer {
         this.state = Tokenizer.DATA;
         return false;
       }
-      if (c >= "A" && c <= "Z") this.currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
+      if (c >= "A" && c <= "Z")
+        this.currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
       else if (c === "\0") {
         this._emitError("unexpected-null-character");
         this.currentDoctypeName.push("\ufffd");
@@ -1533,7 +1560,9 @@ export class Tokenizer {
     while (true) {
       const c = this._getChar();
       if (c == null) {
-        this._emitError("missing-whitespace-between-doctype-public-and-system-identifiers");
+        this._emitError(
+          "missing-whitespace-between-doctype-public-and-system-identifiers"
+        );
         this.currentDoctypeForceQuirks = true;
         this._emitDoctype();
         this._emitToken(new EOFToken());
@@ -1549,13 +1578,17 @@ export class Tokenizer {
         return false;
       }
       if (c === '"') {
-        this._emitError("missing-whitespace-between-doctype-public-and-system-identifiers");
+        this._emitError(
+          "missing-whitespace-between-doctype-public-and-system-identifiers"
+        );
         this.currentDoctypeSystem = [];
         this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED;
         return false;
       }
       if (c === "'") {
-        this._emitError("missing-whitespace-between-doctype-public-and-system-identifiers");
+        this._emitError(
+          "missing-whitespace-between-doctype-public-and-system-identifiers"
+        );
         this.currentDoctypeSystem = [];
         this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
         return false;
@@ -2203,7 +2236,15 @@ export class Tokenizer {
 
   _stateScriptDataDoubleEscapeStart() {
     const c = this._getChar();
-    if (c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\f" || c === "/" || c === ">") {
+    if (
+      c === " " ||
+      c === "\t" ||
+      c === "\n" ||
+      c === "\r" ||
+      c === "\f" ||
+      c === "/" ||
+      c === ">"
+    ) {
       const temp = this.tempBuffer.join("").toLowerCase();
       if (temp === "script") this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
       else this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
@@ -2327,7 +2368,15 @@ export class Tokenizer {
 
   _stateScriptDataDoubleEscapeEnd() {
     const c = this._getChar();
-    if (c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\f" || c === "/" || c === ">") {
+    if (
+      c === " " ||
+      c === "\t" ||
+      c === "\n" ||
+      c === "\r" ||
+      c === "\f" ||
+      c === "/" ||
+      c === ">"
+    ) {
       const temp = this.tempBuffer.join("").toLowerCase();
       if (temp === "script") this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
       else this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;

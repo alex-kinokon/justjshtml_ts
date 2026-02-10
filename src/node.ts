@@ -5,7 +5,10 @@ import { toMarkdown } from "./markdown.js";
 export class Node {
   constructor(name, { attrs = null, data = null, namespace = "html" } = {}) {
     this.name = name;
-    this.namespace = name.startsWith("#") || name === "!doctype" ? namespace ?? null : namespace || "html";
+    this.namespace =
+      name.startsWith("#") || name === "!doctype"
+        ? (namespace ?? null)
+        : namespace || "html";
     this.parent = null;
     this.data = data;
     this.attrs = attrs ?? {};
@@ -82,7 +85,7 @@ export class Node {
   toText({ separator = " ", strip = true } = {}) {
     const parts = [];
 
-    const walk = (node) => {
+    const walk = node => {
       if (node.name === "#text") {
         let data = node.data ?? "";
         if (strip) data = data.trim();

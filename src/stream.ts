@@ -25,7 +25,10 @@ class StreamSink {
 
     if (token instanceof DoctypeToken) {
       const dt = token.doctype;
-      this.events.push(["doctype", [dt?.name ?? null, dt?.publicId ?? null, dt?.systemId ?? null]]);
+      this.events.push([
+        "doctype",
+        [dt?.name ?? null, dt?.publicId ?? null, dt?.systemId ?? null],
+      ]);
       return TokenSinkResult.Continue;
     }
 
@@ -55,7 +58,10 @@ export function* stream(html, { encoding = null, tokenizerOpts = null } = {}) {
   }
 
   const sink = new StreamSink();
-  const opts = tokenizerOpts instanceof TokenizerOpts ? tokenizerOpts : new TokenizerOpts(tokenizerOpts || {});
+  const opts =
+    tokenizerOpts instanceof TokenizerOpts
+      ? tokenizerOpts
+      : new TokenizerOpts(tokenizerOpts || {});
   const tokenizer = new Tokenizer(sink, opts);
   tokenizer.initialize(input);
 
@@ -87,4 +93,3 @@ export function* stream(html, { encoding = null, tokenizerOpts = null } = {}) {
     if (isEof) break;
   }
 }
-

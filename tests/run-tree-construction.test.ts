@@ -65,7 +65,12 @@ function isTestSelected(fileRel, filename, index, specs) {
     if (spec.includes(":")) {
       const [filePart, indicesPart] = spec.split(":", 2);
       if (!fileRel.includes(filePart) && !filename.includes(filePart)) continue;
-      const wanted = new Set(indicesPart.split(",").filter(Boolean).map((s) => Number.parseInt(s, 10)));
+      const wanted = new Set(
+        indicesPart
+          .split(",")
+          .filter(Boolean)
+          .map(s => Number.parseInt(s, 10))
+      );
       return wanted.has(index);
     }
     if (fileRel.includes(spec) || filename.includes(spec)) return true;
@@ -90,11 +95,11 @@ async function listDatFiles(dir) {
 }
 
 function compareOutputs(expected, actual) {
-  const normalize = (s) =>
+  const normalize = s =>
     s
       .trim()
       .split("\n")
-      .map((line) => line.replace(/\s+$/, ""))
+      .map(line => line.replace(/\s+$/, ""))
       .join("\n");
   return normalize(expected) === normalize(actual);
 }
@@ -110,7 +115,7 @@ function parseDatFile(content) {
     const nextIsNewTest = i + 1 >= lines.length || lines[i + 1] === "#data";
     if (!nextIsNewTest) continue;
 
-    if (current.some((l) => l.trim())) {
+    if (current.some(l => l.trim())) {
       const test = parseSingleTest(current);
       if (test) tests.push(test);
     }
@@ -179,7 +184,10 @@ function parseSingleTest(lines) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const testsDir = path.resolve(REPO_ROOT, args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests");
+  const testsDir = path.resolve(
+    REPO_ROOT,
+    args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests"
+  );
   const dir = path.join(testsDir, "tree-construction");
 
   const datFiles = await listDatFiles(dir);

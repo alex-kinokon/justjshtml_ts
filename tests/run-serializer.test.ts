@@ -36,7 +36,12 @@ function isTestSelected(fileRel, filename, index, specs) {
     if (spec.includes(":")) {
       const [filePart, indicesPart] = spec.split(":", 2);
       if (!fileRel.includes(filePart) && !filename.includes(filePart)) continue;
-      const wanted = new Set(indicesPart.split(",").filter(Boolean).map((s) => Number.parseInt(s, 10)));
+      const wanted = new Set(
+        indicesPart
+          .split(",")
+          .filter(Boolean)
+          .map(s => Number.parseInt(s, 10))
+      );
       return wanted.has(index);
     }
     if (fileRel.includes(spec) || filename.includes(spec)) return true;
@@ -47,13 +52,16 @@ function isTestSelected(fileRel, filename, index, specs) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const testsDir = path.resolve(REPO_ROOT, args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests");
+  const testsDir = path.resolve(
+    REPO_ROOT,
+    args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests"
+  );
   const serializerDir = path.join(testsDir, "serializer");
 
   const entries = await readdir(serializerDir, { withFileTypes: true });
   const testFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".test"))
-    .map((e) => path.join(serializerDir, e.name))
+    .filter(e => e.isFile() && e.name.endsWith(".test"))
+    .map(e => path.join(serializerDir, e.name))
     .sort();
 
   if (!testFiles.length) {
@@ -98,7 +106,7 @@ async function main() {
         continue;
       }
 
-      if (Object.keys(options).some((k) => !supportedOptionKeys.has(k))) {
+      if (Object.keys(options).some(k => !supportedOptionKeys.has(k))) {
         skipped += 1;
         continue;
       }
@@ -116,7 +124,9 @@ async function main() {
         passed += 1;
       } else {
         failed += 1;
-        console.error(`SERIALIZER FAIL: ${fileRel}:${idx} ${test?.description || ""}`.trim());
+        console.error(
+          `SERIALIZER FAIL: ${fileRel}:${idx} ${test?.description || ""}`.trim()
+        );
         if (args.show) {
           console.error("INPUT:", JSON.stringify(input));
         }
@@ -128,9 +138,10 @@ async function main() {
     }
   }
 
-  console.log(`serializer: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped`);
+  console.log(
+    `serializer: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped`
+  );
   process.exit(failed ? 1 : 0);
 }
 
 await main();
-

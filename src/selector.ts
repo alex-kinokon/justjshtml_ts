@@ -47,7 +47,8 @@ class SelectorTokenizer {
   }
 
   _skipWhitespace() {
-    while (this.pos < this.length && " \t\n\r\f".includes(this.selector[this.pos])) this.pos += 1;
+    while (this.pos < this.length && " \t\n\r\f".includes(this.selector[this.pos]))
+      this.pos += 1;
   }
 
   _isNameStart(ch) {
@@ -65,7 +66,8 @@ class SelectorTokenizer {
 
   _readName() {
     const start = this.pos;
-    while (this.pos < this.length && this._isNameChar(this.selector[this.pos])) this.pos += 1;
+    while (this.pos < this.length && this._isNameChar(this.selector[this.pos]))
+      this.pos += 1;
     return this.selector.slice(start, this.pos);
   }
 
@@ -96,7 +98,9 @@ class SelectorTokenizer {
       }
     }
 
-    throw new SelectorError(`Unterminated string in selector: ${JSON.stringify(this.selector)}`);
+    throw new SelectorError(
+      `Unterminated string in selector: ${JSON.stringify(this.selector)}`
+    );
   }
 
   _readUnquotedAttrValue() {
@@ -144,7 +148,8 @@ class SelectorTokenizer {
       if (ch === "#") {
         this.pos += 1;
         const name = this._readName();
-        if (!name) throw new SelectorError(`Expected identifier after # at position ${this.pos}`);
+        if (!name)
+          throw new SelectorError(`Expected identifier after # at position ${this.pos}`);
         tokens.push(new Token(TokenType.ID, name));
         continue;
       }
@@ -152,7 +157,8 @@ class SelectorTokenizer {
       if (ch === ".") {
         this.pos += 1;
         const name = this._readName();
-        if (!name) throw new SelectorError(`Expected identifier after . at position ${this.pos}`);
+        if (!name)
+          throw new SelectorError(`Expected identifier after . at position ${this.pos}`);
         tokens.push(new Token(TokenType.CLASS, name));
         continue;
       }
@@ -163,7 +169,8 @@ class SelectorTokenizer {
         this._skipWhitespace();
 
         const attrName = this._readName();
-        if (!attrName) throw new SelectorError(`Expected attribute name at position ${this.pos}`);
+        if (!attrName)
+          throw new SelectorError(`Expected attribute name at position ${this.pos}`);
         tokens.push(new Token(TokenType.TAG, attrName));
         this._skipWhitespace();
 
@@ -180,11 +187,14 @@ class SelectorTokenizer {
         } else if ("~|^$*".includes(ch2)) {
           const opChar = ch2;
           this.pos += 1;
-          if (this._peek() !== "=") throw new SelectorError(`Expected = after ${opChar} at position ${this.pos}`);
+          if (this._peek() !== "=")
+            throw new SelectorError(`Expected = after ${opChar} at position ${this.pos}`);
           this.pos += 1;
           tokens.push(new Token(TokenType.ATTR_OP, `${opChar}=`));
         } else {
-          throw new SelectorError(`Unexpected character in attribute selector: ${JSON.stringify(ch2)}`);
+          throw new SelectorError(
+            `Unexpected character in attribute selector: ${JSON.stringify(ch2)}`
+          );
         }
 
         this._skipWhitespace();
@@ -196,7 +206,8 @@ class SelectorTokenizer {
         tokens.push(new Token(TokenType.STRING, value));
 
         this._skipWhitespace();
-        if (this._peek() !== "]") throw new SelectorError(`Expected ] at position ${this.pos}`);
+        if (this._peek() !== "]")
+          throw new SelectorError(`Expected ] at position ${this.pos}`);
         this.pos += 1;
         tokens.push(new Token(TokenType.ATTR_END));
         continue;
@@ -214,7 +225,10 @@ class SelectorTokenizer {
         tokens.push(new Token(TokenType.COLON));
 
         const name = this._readName();
-        if (!name) throw new SelectorError(`Expected pseudo-class name after : at position ${this.pos}`);
+        if (!name)
+          throw new SelectorError(
+            `Expected pseudo-class name after : at position ${this.pos}`
+          );
         tokens.push(new Token(TokenType.TAG, name));
 
         if (this._peek() === "(") {
@@ -234,7 +248,8 @@ class SelectorTokenizer {
           const arg = this.selector.slice(argStart, this.pos).trim();
           if (arg) tokens.push(new Token(TokenType.STRING, arg));
 
-          if (this._peek() !== ")") throw new SelectorError(`Expected ) at position ${this.pos}`);
+          if (this._peek() !== ")")
+            throw new SelectorError(`Expected ) at position ${this.pos}`);
           this.pos += 1;
           tokens.push(new Token(TokenType.PAREN_CLOSE));
         }
@@ -248,7 +263,9 @@ class SelectorTokenizer {
         continue;
       }
 
-      throw new SelectorError(`Unexpected character ${JSON.stringify(ch)} at position ${this.pos}`);
+      throw new SelectorError(
+        `Unexpected character ${JSON.stringify(ch)} at position ${this.pos}`
+      );
     }
 
     tokens.push(new Token(TokenType.EOF));
@@ -264,7 +281,10 @@ class SimpleSelector {
   static TYPE_ATTR = "attr";
   static TYPE_PSEUDO = "pseudo";
 
-  constructor(selectorType, { name = null, operator = null, value = null, arg = null } = {}) {
+  constructor(
+    selectorType,
+    { name = null, operator = null, value = null, arg = null } = {}
+  ) {
     this.type = selectorType;
     this.name = name;
     this.operator = operator;
@@ -310,7 +330,8 @@ class SelectorParser {
 
   _expect(tokenType) {
     const token = this._peek();
-    if (token.type !== tokenType) throw new SelectorError(`Expected ${tokenType}, got ${token.type}`);
+    if (token.type !== tokenType)
+      throw new SelectorError(`Expected ${tokenType}, got ${token.type}`);
     return this._advance();
   }
 
@@ -324,7 +345,8 @@ class SelectorParser {
       if (selector) selectors.push(selector);
     }
 
-    if (this._peek().type !== TokenType.EOF) throw new SelectorError(`Unexpected token: ${this._peek()}`);
+    if (this._peek().type !== TokenType.EOF)
+      throw new SelectorError(`Unexpected token: ${this._peek()}`);
 
     if (selectors.length === 1) return selectors[0];
     return new SelectorList(selectors);
@@ -356,16 +378,22 @@ class SelectorParser {
 
       if (token.type === TokenType.TAG) {
         this._advance();
-        simpleSelectors.push(new SimpleSelector(SimpleSelector.TYPE_TAG, { name: token.value }));
+        simpleSelectors.push(
+          new SimpleSelector(SimpleSelector.TYPE_TAG, { name: token.value })
+        );
       } else if (token.type === TokenType.UNIVERSAL) {
         this._advance();
         simpleSelectors.push(new SimpleSelector(SimpleSelector.TYPE_UNIVERSAL));
       } else if (token.type === TokenType.ID) {
         this._advance();
-        simpleSelectors.push(new SimpleSelector(SimpleSelector.TYPE_ID, { name: token.value }));
+        simpleSelectors.push(
+          new SimpleSelector(SimpleSelector.TYPE_ID, { name: token.value })
+        );
       } else if (token.type === TokenType.CLASS) {
         this._advance();
-        simpleSelectors.push(new SimpleSelector(SimpleSelector.TYPE_CLASS, { name: token.value }));
+        simpleSelectors.push(
+          new SimpleSelector(SimpleSelector.TYPE_CLASS, { name: token.value })
+        );
       } else if (token.type === TokenType.ATTR_START) {
         simpleSelectors.push(this._parseAttributeSelector());
       } else if (token.type === TokenType.COLON) {
@@ -393,7 +421,11 @@ class SelectorParser {
     const value = this._expect(TokenType.STRING).value;
     this._expect(TokenType.ATTR_END);
 
-    return new SimpleSelector(SimpleSelector.TYPE_ATTR, { name: attrName, operator, value });
+    return new SimpleSelector(SimpleSelector.TYPE_ATTR, {
+      name: attrName,
+      operator,
+      value,
+    });
   }
 
   _parsePseudoSelector() {
@@ -413,14 +445,21 @@ class SelectorParser {
 }
 
 function isElementNode(node) {
-  return node != null && typeof node.name === "string" && !node.name.startsWith("#") && node.name !== "!doctype";
+  return (
+    node != null &&
+    typeof node.name === "string" &&
+    !node.name.startsWith("#") &&
+    node.name !== "!doctype"
+  );
 }
 
 class SelectorMatcher {
   matches(node, selector) {
-    if (selector instanceof SelectorList) return selector.selectors.some((sel) => this.matches(node, sel));
+    if (selector instanceof SelectorList)
+      return selector.selectors.some(sel => this.matches(node, sel));
     if (selector instanceof ComplexSelector) return this._matchesComplex(node, selector);
-    if (selector instanceof CompoundSelector) return this._matchesCompound(node, selector);
+    if (selector instanceof CompoundSelector)
+      return this._matchesCompound(node, selector);
     if (selector instanceof SimpleSelector) return this._matchesSimple(node, selector);
     return false;
   }
@@ -476,7 +515,7 @@ class SelectorMatcher {
   }
 
   _matchesCompound(node, compound) {
-    return compound.selectors.every((simple) => this._matchesSimple(node, simple));
+    return compound.selectors.every(simple => this._matchesSimple(node, simple));
   }
 
   _matchesSimple(node, selector) {
@@ -484,9 +523,11 @@ class SelectorMatcher {
 
     if (selector.type === SimpleSelector.TYPE_UNIVERSAL) return true;
 
-    if (selector.type === SimpleSelector.TYPE_TAG) return node.name.toLowerCase() === String(selector.name).toLowerCase();
+    if (selector.type === SimpleSelector.TYPE_TAG)
+      return node.name.toLowerCase() === String(selector.name).toLowerCase();
 
-    if (selector.type === SimpleSelector.TYPE_ID) return (node.attrs?.id ?? "") === selector.name;
+    if (selector.type === SimpleSelector.TYPE_ID)
+      return (node.attrs?.id ?? "") === selector.name;
 
     if (selector.type === SimpleSelector.TYPE_CLASS) {
       const classAttr = node.attrs?.class ?? "";
@@ -494,9 +535,11 @@ class SelectorMatcher {
       return classes.includes(selector.name);
     }
 
-    if (selector.type === SimpleSelector.TYPE_ATTR) return this._matchesAttribute(node, selector);
+    if (selector.type === SimpleSelector.TYPE_ATTR)
+      return this._matchesAttribute(node, selector);
 
-    if (selector.type === SimpleSelector.TYPE_PSEUDO) return this._matchesPseudo(node, selector);
+    if (selector.type === SimpleSelector.TYPE_PSEUDO)
+      return this._matchesPseudo(node, selector);
 
     return false;
   }
@@ -561,20 +604,24 @@ class SelectorMatcher {
 
     if (name === "root") {
       const parent = node.parent;
-      return parent != null && (parent.name === "#document" || parent.name === "#document-fragment");
+      return (
+        parent != null &&
+        (parent.name === "#document" || parent.name === "#document-fragment")
+      );
     }
 
     if (name === "first-of-type") return this._isFirstOfType(node);
     if (name === "last-of-type") return this._isLastOfType(node);
     if (name === "nth-of-type") return this._matchesNthOfType(node, selector.arg);
-    if (name === "only-of-type") return this._isFirstOfType(node) && this._isLastOfType(node);
+    if (name === "only-of-type")
+      return this._isFirstOfType(node) && this._isLastOfType(node);
 
     throw new SelectorError(`Unsupported pseudo-class: :${name}`);
   }
 
   _getElementChildren(parent) {
     if (!parent || !Array.isArray(parent.children) || !parent.children.length) return [];
-    return parent.children.filter((c) => isElementNode(c));
+    return parent.children.filter(c => isElementNode(c));
   }
 
   _getPreviousSibling(node) {
@@ -704,7 +751,8 @@ class SelectorMatcher {
 }
 
 function parseSelector(selectorString) {
-  if (!selectorString || !String(selectorString).trim()) throw new SelectorError("Empty selector");
+  if (!selectorString || !String(selectorString).trim())
+    throw new SelectorError("Empty selector");
 
   const tokenizer = new SelectorTokenizer(String(selectorString).trim());
   const tokens = tokenizer.tokenize();
@@ -737,4 +785,3 @@ export function matches(node, selectorString) {
   const selector = parseSelector(selectorString);
   return matcher.matches(node, selector);
 }
-

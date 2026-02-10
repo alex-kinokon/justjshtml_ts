@@ -36,7 +36,8 @@ export const InsertionMode = Object.freeze({
 export function isAllWhitespace(text) {
   if (!text) return true;
   for (const ch of text) {
-    if (ch !== "\t" && ch !== "\n" && ch !== "\f" && ch !== "\r" && ch !== " ") return false;
+    if (ch !== "\t" && ch !== "\n" && ch !== "\f" && ch !== "\r" && ch !== " ")
+      return false;
   }
   return true;
 }
@@ -57,11 +58,25 @@ export function doctypeErrorAndQuirks(doctype, { iframeSrcdoc = false } = {}) {
     ["html", null, null].join("\u0000"),
     ["html", null, "about:legacy-compat"].join("\u0000"),
     ["html", "-//W3C//DTD HTML 4.0//EN", null].join("\u0000"),
-    ["html", "-//W3C//DTD HTML 4.0//EN", "http://www.w3.org/TR/REC-html40/strict.dtd"].join("\u0000"),
+    [
+      "html",
+      "-//W3C//DTD HTML 4.0//EN",
+      "http://www.w3.org/TR/REC-html40/strict.dtd",
+    ].join("\u0000"),
     ["html", "-//W3C//DTD HTML 4.01//EN", null].join("\u0000"),
-    ["html", "-//W3C//DTD HTML 4.01//EN", "http://www.w3.org/TR/html4/strict.dtd"].join("\u0000"),
-    ["html", "-//W3C//DTD XHTML 1.0 Strict//EN", "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"].join("\u0000"),
-    ["html", "-//W3C//DTD XHTML 1.1//EN", "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"].join("\u0000"),
+    ["html", "-//W3C//DTD HTML 4.01//EN", "http://www.w3.org/TR/html4/strict.dtd"].join(
+      "\u0000"
+    ),
+    [
+      "html",
+      "-//W3C//DTD XHTML 1.0 Strict//EN",
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd",
+    ].join("\u0000"),
+    [
+      "html",
+      "-//W3C//DTD XHTML 1.1//EN",
+      "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd",
+    ].join("\u0000"),
   ]);
 
   const key = [name, publicId, systemId].join("\u0000");
@@ -93,4 +108,3 @@ export function doctypeErrorAndQuirks(doctype, { iframeSrcdoc = false } = {}) {
 
   return [parseError, quirksMode];
 }
-

@@ -37,4 +37,3 @@ assert.equal(text.parent, p);
 assert.equal(text.data, "Hello");
 
 console.log("smoke: ok");
-

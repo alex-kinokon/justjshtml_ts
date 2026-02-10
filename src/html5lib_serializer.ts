@@ -16,7 +16,10 @@ function attrListToDict(attrs) {
 
 function escapeText(text) {
   if (!text) return "";
-  return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function escapeAttrValue(value, quoteChar, escapeLtInAttrs) {
@@ -41,7 +44,8 @@ function canUnquoteAttrValue(value) {
   for (const ch of s) {
     if (ch === ">") return false;
     if (ch === '"' || ch === "'" || ch === "=") return false;
-    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r") return false;
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r")
+      return false;
   }
   return true;
 }
@@ -55,7 +59,9 @@ function shouldMinimizeAttrValue(name, value, minimizeBooleanAttributes) {
 function serializeStartTag(name, attrs, options, isVoid) {
   const quoteAttrValues = Boolean(options.quote_attr_values);
   const minimizeBooleanAttributes =
-    options.minimize_boolean_attributes === undefined ? true : Boolean(options.minimize_boolean_attributes);
+    options.minimize_boolean_attributes === undefined
+      ? true
+      : Boolean(options.minimize_boolean_attributes);
   const useTrailingSolidus = Boolean(options.use_trailing_solidus);
   const escapeLtInAttrs = Boolean(options.escape_lt_in_attrs);
   const forcedQuote = options.quote_char ?? null;
@@ -133,7 +139,15 @@ function updateMetaContentTypeCharset(content, encoding) {
   let end = start;
   while (end < s.length) {
     const ch = s[end];
-    if (ch === ";" || ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "\f") break;
+    if (
+      ch === ";" ||
+      ch === " " ||
+      ch === "\t" ||
+      ch === "\r" ||
+      ch === "\n" ||
+      ch === "\f"
+    )
+      break;
     end += 1;
   }
   return s.slice(0, start) + String(encoding) + s.slice(end);
@@ -170,7 +184,10 @@ function applyInjectMetaCharset(tokens, encoding) {
       if (Object.prototype.hasOwnProperty.call(attrs, "charset")) {
         attrs.charset = encoding;
         foundCharset = true;
-      } else if (String(attrs["http-equiv"] || "").toLowerCase() === "content-type" && "content" in attrs) {
+      } else if (
+        String(attrs["http-equiv"] || "").toLowerCase() === "content-type" &&
+        "content" in attrs
+      ) {
         attrs.content = updateMetaContentTypeCharset(attrs.content, encoding);
         foundCharset = true;
       }
@@ -211,7 +228,8 @@ function shouldOmitStartTag(name, attrs, prevTok, nextTok) {
     if (nextTok == null) return true;
     if (nextTok[0] === "Comment" || nextTok[0] === "Characters") return false;
     if (nextTok[0] === "EndTag" && tokName(nextTok) === "head") return true;
-    if (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag" || nextTok[0] === "EndTag") return true;
+    if (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag" || nextTok[0] === "EndTag")
+      return true;
     return false;
   }
 
@@ -223,7 +241,11 @@ function shouldOmitStartTag(name, attrs, prevTok, nextTok) {
 
   if (name === "colgroup") {
     if (prevTok != null && prevTok[0] === "StartTag" && tokName(prevTok) === "table") {
-      if (nextTok != null && (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag") && tokName(nextTok) === "col") {
+      if (
+        nextTok != null &&
+        (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag") &&
+        tokName(nextTok) === "col"
+      ) {
         return true;
       }
     }
@@ -232,7 +254,8 @@ function shouldOmitStartTag(name, attrs, prevTok, nextTok) {
 
   if (name === "tbody") {
     if (prevTok != null && prevTok[0] === "StartTag" && tokName(prevTok) === "table") {
-      if (nextTok != null && nextTok[0] === "StartTag" && tokName(nextTok) === "tr") return true;
+      if (nextTok != null && nextTok[0] === "StartTag" && tokName(nextTok) === "tr")
+        return true;
     }
     return false;
   }
@@ -244,7 +267,8 @@ function shouldOmitEndTag(name, nextTok) {
   if (name === "html" || name === "head" || name === "body" || name === "colgroup") {
     if (nextTok == null) return true;
     if (nextTok[0] === "Comment" || tokIsSpaceChars(nextTok)) return false;
-    if (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag" || nextTok[0] === "EndTag") return true;
+    if (nextTok[0] === "StartTag" || nextTok[0] === "EmptyTag" || nextTok[0] === "EndTag")
+      return true;
     if (nextTok[0] === "Characters") return !String(nextTok[1] || "").startsWith(" ");
     return true;
   }
@@ -258,13 +282,21 @@ function shouldOmitEndTag(name, nextTok) {
 
   if (name === "dt") {
     if (nextTok == null) return false;
-    if (nextTok[0] === "StartTag" && (tokName(nextTok) === "dt" || tokName(nextTok) === "dd")) return true;
+    if (
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "dt" || tokName(nextTok) === "dd")
+    )
+      return true;
     return false;
   }
 
   if (name === "dd") {
     if (nextTok == null) return true;
-    if (nextTok[0] === "StartTag" && (tokName(nextTok) === "dd" || tokName(nextTok) === "dt")) return true;
+    if (
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "dd" || tokName(nextTok) === "dt")
+    )
+      return true;
     if (nextTok[0] === "EndTag") return true;
     return false;
   }
@@ -319,14 +351,22 @@ function shouldOmitEndTag(name, nextTok) {
 
   if (name === "option") {
     if (nextTok == null) return true;
-    if (nextTok[0] === "StartTag" && (tokName(nextTok) === "option" || tokName(nextTok) === "optgroup")) return true;
+    if (
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "option" || tokName(nextTok) === "optgroup")
+    )
+      return true;
     if (nextTok[0] === "EndTag") return true;
     return false;
   }
 
   if (name === "tbody") {
     if (nextTok == null) return true;
-    if (nextTok[0] === "StartTag" && (tokName(nextTok) === "tbody" || tokName(nextTok) === "tfoot")) return true;
+    if (
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "tbody" || tokName(nextTok) === "tfoot")
+    )
+      return true;
     if (nextTok[0] === "EndTag") return true;
     return false;
   }
@@ -339,7 +379,11 @@ function shouldOmitEndTag(name, nextTok) {
   }
 
   if (name === "thead") {
-    if (nextTok != null && nextTok[0] === "StartTag" && (tokName(nextTok) === "tbody" || tokName(nextTok) === "tfoot"))
+    if (
+      nextTok != null &&
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "tbody" || tokName(nextTok) === "tfoot")
+    )
       return true;
     return false;
   }
@@ -353,7 +397,11 @@ function shouldOmitEndTag(name, nextTok) {
 
   if (name === "td" || name === "th") {
     if (nextTok == null) return true;
-    if (nextTok[0] === "StartTag" && (tokName(nextTok) === "td" || tokName(nextTok) === "th")) return true;
+    if (
+      nextTok[0] === "StartTag" &&
+      (tokName(nextTok) === "td" || tokName(nextTok) === "th")
+    )
+      return true;
     if (nextTok[0] === "EndTag") return true;
     return false;
   }
@@ -435,7 +483,8 @@ export function serializeSerializerTokenStream(tokens, options = {}) {
       }
 
       let text = String(t[1] ?? "");
-      if (stripWs && !openElements.some((n) => wsPreserve.has(n))) text = stripWhitespace(text);
+      if (stripWs && !openElements.some(n => wsPreserve.has(n)))
+        text = stripWhitespace(text);
       parts.push(escapeText(text));
       continue;
     }
@@ -456,7 +505,8 @@ export function serializeSerializerTokenStream(tokens, options = {}) {
         const hasPublic = publicId != null && publicId !== "";
         const hasSystem = systemId != null && systemId !== "";
         if (hasPublic) {
-          if (hasSystem) parts.push(`<!DOCTYPE ${name} PUBLIC "${publicId}" "${systemId}">`);
+          if (hasSystem)
+            parts.push(`<!DOCTYPE ${name} PUBLIC "${publicId}" "${systemId}">`);
           else parts.push(`<!DOCTYPE ${name} PUBLIC "${publicId}">`);
         } else if (hasSystem) {
           parts.push(`<!DOCTYPE ${name} SYSTEM "${systemId}">`);
@@ -472,4 +522,3 @@ export function serializeSerializerTokenStream(tokens, options = {}) {
 
   return parts.join("");
 }
-

@@ -2,7 +2,14 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CharacterToken, CommentToken, Doctype, DoctypeToken, EOFToken, Tag } from "../src/tokens.js";
+import {
+  CharacterToken,
+  CommentToken,
+  Doctype,
+  DoctypeToken,
+  EOFToken,
+  Tag,
+} from "../src/tokens.js";
 import { Tokenizer, TokenizerOpts } from "../src/tokenizer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +32,9 @@ function parseArgs(argv) {
 }
 
 function unescapeUnicode(text) {
-  return text.replaceAll(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+  return text.replaceAll(/\\u([0-9A-Fa-f]{4})/g, (_, hex) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  );
 }
 
 function deepUnescape(val) {
@@ -62,7 +71,12 @@ function tokenToList(token) {
 function collapseCharacters(tokens) {
   const out = [];
   for (const t of tokens) {
-    if (t && t[0] === "Character" && out.length && out[out.length - 1][0] === "Character") {
+    if (
+      t &&
+      t[0] === "Character" &&
+      out.length &&
+      out[out.length - 1][0] === "Character"
+    ) {
       out[out.length - 1][1] += t[1];
     } else {
       out.push(t);
@@ -102,7 +116,9 @@ class RecordingSink {
 
   processToken(token) {
     if (token instanceof Tag) {
-      this.tokens.push(new Tag(token.kind, token.name, { ...(token.attrs || {}) }, token.selfClosing));
+      this.tokens.push(
+        new Tag(token.kind, token.name, { ...(token.attrs || {}) }, token.selfClosing)
+      );
     } else if (token instanceof CharacterToken) {
       this.tokens.push(new CharacterToken(token.data));
     } else if (token instanceof CommentToken) {
@@ -111,7 +127,12 @@ class RecordingSink {
       const d = token.doctype;
       this.tokens.push(
         new DoctypeToken(
-          new Doctype({ name: d.name, publicId: d.publicId, systemId: d.systemId, forceQuirks: d.forceQuirks })
+          new Doctype({
+            name: d.name,
+            publicId: d.publicId,
+            systemId: d.systemId,
+            forceQuirks: d.forceQuirks,
+          })
         )
       );
     } else if (token instanceof EOFToken) {
@@ -134,7 +155,12 @@ function isTestSelected(fileRel, filename, index, specs) {
     if (spec.includes(":")) {
       const [filePart, indicesPart] = spec.split(":", 2);
       if (!fileRel.includes(filePart) && !filename.includes(filePart)) continue;
-      const wanted = new Set(indicesPart.split(",").filter(Boolean).map((s) => Number.parseInt(s, 10)));
+      const wanted = new Set(
+        indicesPart
+          .split(",")
+          .filter(Boolean)
+          .map(s => Number.parseInt(s, 10))
+      );
       return wanted.has(index);
     }
     if (fileRel.includes(spec) || filename.includes(spec)) return true;
@@ -145,13 +171,16 @@ function isTestSelected(fileRel, filename, index, specs) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const testsDir = path.resolve(REPO_ROOT, args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests");
+  const testsDir = path.resolve(
+    REPO_ROOT,
+    args.testsDir || process.env.HTML5LIB_TESTS_DIR || "html5lib-tests"
+  );
   const tokenizerDir = path.join(testsDir, "tokenizer");
 
   const entries = await readdir(tokenizerDir, { withFileTypes: true });
   const testFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".test"))
-    .map((e) => path.join(tokenizerDir, e.name))
+    .filter(e => e.isFile() && e.name.endsWith(".test"))
+    .map(e => path.join(tokenizerDir, e.name))
     .sort();
 
   if (!testFiles.length) {
@@ -211,7 +240,10 @@ async function main() {
         tokenizer.run(inputText);
 
         const actual = collapseCharacters(sink.tokens.map(tokenToList).filter(Boolean));
-        if (JSON.stringify(canonicalize(actual)) !== JSON.stringify(canonicalize(expectedTokens))) {
+        if (
+          JSON.stringify(canonicalize(actual)) !==
+          JSON.stringify(canonicalize(expectedTokens))
+        ) {
           ok = false;
           break;
         }
@@ -221,7 +253,9 @@ async function main() {
         passed += 1;
       } else {
         failed += 1;
-        console.error(`TOKENIZER FAIL: ${fileRel}:${idx} ${test.description || ""}`.trim());
+        console.error(
+          `TOKENIZER FAIL: ${fileRel}:${idx} ${test.description || ""}`.trim()
+        );
       }
     }
   }

@@ -15,7 +15,9 @@ const results = [];
 
 results.push(
   test("headings + paragraphs + inline", () => {
-    const doc = new JustHTML("<h1>Title</h1><p>Hello <b>world</b> <em>ok</em> <a href='https://e.com'>link</a> a*b</p>");
+    const doc = new JustHTML(
+      "<h1>Title</h1><p>Hello <b>world</b> <em>ok</em> <a href='https://e.com'>link</a> a*b</p>"
+    );
     const md = doc.toMarkdown();
     assert.ok(md.startsWith("# Title\n\n"));
     assert.ok(md.includes("Hello **world** *ok* [link](https://e.com) a\\*b"));
@@ -40,7 +42,9 @@ results.push(
 
 results.push(
   test("lists", () => {
-    const doc = new JustHTML("<ul><li>One</li><li>Two</li></ul><ol><li>A</li><li>B</li></ol>");
+    const doc = new JustHTML(
+      "<ul><li>One</li><li>Two</li></ul><ol><li>A</li><li>B</li></ol>"
+    );
     const md = doc.toMarkdown();
     assert.ok(md.includes("- One\n- Two"));
     assert.ok(md.includes("1. A\n2. B"));
@@ -49,7 +53,9 @@ results.push(
 
 results.push(
   test("tables + images preserved as HTML", () => {
-    const doc = new JustHTML("<p>Hi<img src=x alt=y>there</p><table><tr><td>A</td></tr></table>");
+    const doc = new JustHTML(
+      "<p>Hi<img src=x alt=y>there</p><table><tr><td>A</td></tr></table>"
+    );
     const md = doc.toMarkdown();
     assert.ok(md.includes("<img src=x alt=y>"));
     assert.ok(md.includes("<table"));
@@ -72,7 +78,9 @@ results.push(
   test("preserves script/style whitespace", () => {
     const root = new Node("div");
     const script = new Node("script");
-    script.appendChild(new Node("#text", { data: "var x = 1;\nvar y = 2;\n", namespace: null }));
+    script.appendChild(
+      new Node("#text", { data: "var x = 1;\nvar y = 2;\n", namespace: null })
+    );
     root.appendChild(script);
     assert.equal(root.toMarkdown(), "var x = 1;\nvar y = 2;");
   })
@@ -141,15 +149,16 @@ results.push(
   })
 );
 
-const failed = results.filter((r) => !r.ok);
+const failed = results.filter(r => !r.ok);
 if (failed.length) {
   for (const r of failed) {
     console.error(`markdown FAIL: ${r.name}`);
     console.error(r.err);
   }
-  console.error(`markdown: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`);
+  console.error(
+    `markdown: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`
+  );
   process.exit(1);
 }
 
 console.log(`markdown: ${results.length}/${results.length} passed`);
-

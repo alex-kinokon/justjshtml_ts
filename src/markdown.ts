@@ -155,7 +155,8 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
   if (name === "#comment" || name === "!doctype") return;
 
   if (typeof name === "string" && name.startsWith("#")) {
-    for (const child of node.children || []) toMarkdownWalk(child, builder, preserveWhitespace, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, preserveWhitespace, listDepth);
     return;
   }
 
@@ -173,12 +174,20 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
     return;
   }
 
-  if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4" || tag === "h5" || tag === "h6") {
+  if (
+    tag === "h1" ||
+    tag === "h2" ||
+    tag === "h3" ||
+    tag === "h4" ||
+    tag === "h5" ||
+    tag === "h6"
+  ) {
     builder.ensureNewlines(builder._buf.length ? 2 : 0);
     const level = Number.parseInt(tag[1], 10);
     builder.raw("#".repeat(level));
     builder.raw(" ");
-    for (const child of node.children || []) toMarkdownWalk(child, builder, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, false, listDepth);
     builder.ensureNewlines(2);
     return;
   }
@@ -213,7 +222,8 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
 
   if (tag === "p") {
     builder.ensureNewlines(builder._buf.length ? 2 : 0);
-    for (const child of node.children || []) toMarkdownWalk(child, builder, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, false, listDepth);
     builder.ensureNewlines(2);
     return;
   }
@@ -221,7 +231,8 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
   if (tag === "blockquote") {
     builder.ensureNewlines(builder._buf.length ? 2 : 0);
     const inner = new MarkdownBuilder();
-    for (const child of node.children || []) toMarkdownWalk(child, inner, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, inner, false, listDepth);
     const text = inner.finish();
     if (text) {
       const lines = text.split("\n");
@@ -246,7 +257,8 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
       const marker = ordered ? `${idx}. ` : "- ";
       builder.raw(indent);
       builder.raw(marker);
-      for (const liChild of child.children || []) toMarkdownWalk(liChild, builder, false, listDepth + 1);
+      for (const liChild of child.children || [])
+        toMarkdownWalk(liChild, builder, false, listDepth + 1);
       idx += 1;
     }
     builder.ensureNewlines(2);
@@ -255,14 +267,16 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
 
   if (tag === "em" || tag === "i") {
     builder.raw("*");
-    for (const child of node.children || []) toMarkdownWalk(child, builder, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, false, listDepth);
     builder.raw("*");
     return;
   }
 
   if (tag === "strong" || tag === "b") {
     builder.raw("**");
-    for (const child of node.children || []) toMarkdownWalk(child, builder, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, false, listDepth);
     builder.raw("**");
     return;
   }
@@ -270,9 +284,11 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
   if (tag === "a") {
     let href = "";
     const attrs = node.attrs || {};
-    if (Object.prototype.hasOwnProperty.call(attrs, "href") && attrs.href != null) href = String(attrs.href);
+    if (Object.prototype.hasOwnProperty.call(attrs, "href") && attrs.href != null)
+      href = String(attrs.href);
     builder.raw("[");
-    for (const child of node.children || []) toMarkdownWalk(child, builder, false, listDepth);
+    for (const child of node.children || [])
+      toMarkdownWalk(child, builder, false, listDepth);
     builder.raw("]");
     if (href) {
       builder.raw("(");
@@ -282,8 +298,10 @@ function toMarkdownWalk(node, builder, preserveWhitespace, listDepth) {
     return;
   }
 
-  const nextPreserve = preserveWhitespace || tag === "textarea" || tag === "script" || tag === "style";
-  for (const child of node.children || []) toMarkdownWalk(child, builder, nextPreserve, listDepth);
+  const nextPreserve =
+    preserveWhitespace || tag === "textarea" || tag === "script" || tag === "style";
+  for (const child of node.children || [])
+    toMarkdownWalk(child, builder, nextPreserve, listDepth);
 
   const templateContent = node.templateContent ?? node.template_content ?? null;
   if (templateContent) toMarkdownWalk(templateContent, builder, nextPreserve, listDepth);

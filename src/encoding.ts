@@ -109,8 +109,10 @@ export function normalizeEncodingLabel(label) {
     return "windows-1252";
   }
 
-  if (s === "windows-1252" || s === "windows1252" || s === "cp1252" || s === "x-cp1252") return "windows-1252";
-  if (s === "iso-8859-2" || s === "iso8859-2" || s === "latin2" || s === "latin-2") return "iso-8859-2";
+  if (s === "windows-1252" || s === "windows1252" || s === "cp1252" || s === "x-cp1252")
+    return "windows-1252";
+  if (s === "iso-8859-2" || s === "iso8859-2" || s === "latin2" || s === "latin-2")
+    return "iso-8859-2";
   if (s === "euc-jp" || s === "eucjp") return "euc-jp";
 
   if (s === "utf-16" || s === "utf16") return "utf-16";
@@ -139,7 +141,8 @@ function normalizeMetaDeclaredEncoding(label) {
 }
 
 function sniffBOM(data) {
-  if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return ["utf-8", 3];
+  if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf)
+    return ["utf-8", 3];
   if (data.length >= 2 && data[0] === 0xff && data[1] === 0xfe) return ["utf-16le", 2];
   if (data.length >= 2 && data[0] === 0xfe && data[1] === 0xff) return ["utf-16be", 2];
   return [null, 0];
@@ -204,7 +207,12 @@ function prescanForMetaCharset(data) {
     }
 
     // Comment <!-- ... -->
-    if (i + 3 < n && data[i + 1] === 0x21 && data[i + 2] === 0x2d && data[i + 3] === 0x2d) {
+    if (
+      i + 3 < n &&
+      data[i + 1] === 0x21 &&
+      data[i + 2] === 0x2d &&
+      data[i + 3] === 0x2d
+    ) {
       const end = indexOfSubarray(data, BYTES_DASH_DASH_GT, i + 4);
       if (end === -1) return null;
       i = end + 3;
@@ -296,7 +304,14 @@ function prescanForMetaCharset(data) {
       const attrStart = k;
       while (k < n) {
         const c = data[k];
-        if (ASCII_WHITESPACE.has(c) || c === 0x3d || c === 0x3e || c === 0x2f || c === 0x3c) break;
+        if (
+          ASCII_WHITESPACE.has(c) ||
+          c === 0x3d ||
+          c === 0x3e ||
+          c === 0x2f ||
+          c === 0x3c
+        )
+          break;
         k += 1;
       }
       const attrEnd = k;
@@ -337,8 +352,10 @@ function prescanForMetaCharset(data) {
         }
       }
 
-      if (bytesEqualLower(data, attrStart, attrEnd, BYTES_CHARSET)) charset = stripAsciiWhitespace(value);
-      else if (bytesEqualLower(data, attrStart, attrEnd, BYTES_HTTP_EQUIV)) httpEquiv = value;
+      if (bytesEqualLower(data, attrStart, attrEnd, BYTES_CHARSET))
+        charset = stripAsciiWhitespace(value);
+      else if (bytesEqualLower(data, attrStart, attrEnd, BYTES_HTTP_EQUIV))
+        httpEquiv = value;
       else if (bytesEqualLower(data, attrStart, attrEnd, BYTES_CONTENT)) content = value;
     }
 
@@ -348,7 +365,11 @@ function prescanForMetaCharset(data) {
         if (enc) return enc;
       }
 
-      if (httpEquiv && bytesEqualIgnoreAsciiCase(httpEquiv, BYTES_CONTENT_TYPE) && content) {
+      if (
+        httpEquiv &&
+        bytesEqualIgnoreAsciiCase(httpEquiv, BYTES_CONTENT_TYPE) &&
+        content
+      ) {
         const extracted = extractCharsetFromContent(content);
         if (extracted) {
           const enc = normalizeMetaDeclaredEncoding(extracted);
@@ -414,4 +435,3 @@ export function decodeHTML(data, { transportEncoding = null } = {}) {
   const text = new TextDecoder(enc).decode(payload);
   return { text, encoding: enc };
 }
-

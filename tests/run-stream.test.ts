@@ -82,15 +82,16 @@ results.push(
   })
 );
 
-const failed = results.filter((r) => !r.ok);
+const failed = results.filter(r => !r.ok);
 if (failed.length) {
   for (const r of failed) {
     console.error(`stream FAIL: ${r.name}`);
     console.error(r.err);
   }
-  console.error(`stream: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`);
+  console.error(
+    `stream: ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`
+  );
   process.exit(1);
 }
 
 console.log(`stream: ${results.length}/${results.length} passed`);
-

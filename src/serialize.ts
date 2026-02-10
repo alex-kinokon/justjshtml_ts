@@ -75,17 +75,23 @@ function nodeToTestFormat(node, indent, options) {
   const attributeLines = attrsToTestFormat(node, indent, options);
 
   const templateContent = node.templateContent ?? node.template_content ?? null;
-  if (node.name === "template" && (node.namespace == null || node.namespace === "html") && templateContent) {
+  if (
+    node.name === "template" &&
+    (node.namespace == null || node.namespace === "html") &&
+    templateContent
+  ) {
     const sections = [line];
     if (attributeLines.length) sections.push(...attributeLines);
     sections.push(`| ${" ".repeat(indent + 2)}content`);
-    for (const child of templateContent.children || []) sections.push(nodeToTestFormat(child, indent + 4, options));
+    for (const child of templateContent.children || [])
+      sections.push(nodeToTestFormat(child, indent + 4, options));
     return sections.join("\n");
   }
 
   const sections = [line];
   if (attributeLines.length) sections.push(...attributeLines);
-  for (const child of node.children || []) sections.push(nodeToTestFormat(child, indent + 2, options));
+  for (const child of node.children || [])
+    sections.push(nodeToTestFormat(child, indent + 2, options));
   return sections.join("\n");
 }
 
@@ -94,7 +100,9 @@ export function toTestFormat(node, options = {}) {
   const opts = { foreignAttributeAdjustments };
 
   if (node.name === "#document" || node.name === "#document-fragment") {
-    return (node.children || []).map((child) => nodeToTestFormat(child, 0, opts)).join("\n");
+    return (node.children || [])
+      .map(child => nodeToTestFormat(child, 0, opts))
+      .join("\n");
   }
 
   return nodeToTestFormat(node, 0, opts);
@@ -104,7 +112,10 @@ export function toTestFormat(node, options = {}) {
 
 function escapeText(text) {
   if (!text) return "";
-  return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function chooseAttrQuote(value) {
@@ -127,7 +138,8 @@ function canUnquoteAttrValue(value) {
   for (const ch of s) {
     if (ch === ">") return false;
     if (ch === '"' || ch === "'" || ch === "=") return false;
-    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r") return false;
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r")
+      return false;
   }
   return true;
 }
@@ -190,7 +202,8 @@ function nodeToHTML(node, indent = 0, indentSize = 2, pretty = true) {
 
   if (name === "#document") {
     const parts = [];
-    for (const child of node.children || []) parts.push(nodeToHTML(child, indent, indentSize, pretty));
+    for (const child of node.children || [])
+      parts.push(nodeToHTML(child, indent, indentSize, pretty));
     return pretty ? parts.join(newline) : parts.join("");
   }
 
@@ -201,13 +214,15 @@ function nodeToHTML(node, indent = 0, indentSize = 2, pretty = true) {
 
   const templateContent = node.templateContent ?? node.template_content ?? null;
   const children =
-    name === "template" && (node.namespace == null || node.namespace === "html") && templateContent
+    name === "template" &&
+    (node.namespace == null || node.namespace === "html") &&
+    templateContent
       ? templateContent.children || []
       : node.children || [];
 
   if (!children.length) return `${prefix}${openTag}${serializeEndTag(name)}`;
 
-  const allText = children.every((c) => c.name === "#text");
+  const allText = children.every(c => c.name === "#text");
   if (allText && pretty) {
     return `${prefix}${openTag}${escapeText(node.toText({ separator: "", strip: false }))}${serializeEndTag(name)}`;
   }

@@ -22,8 +22,20 @@ import {
 } from "./constants.js";
 import { FragmentContext } from "./context.js";
 import { Node } from "./node.js";
-import { CharacterToken, CommentToken, DoctypeToken, EOFToken, ParseError, Tag, TokenSinkResult } from "./tokens.js";
-import { InsertionMode, doctypeErrorAndQuirks, isAllWhitespace } from "./treebuilder_utils.js";
+import {
+  CharacterToken,
+  CommentToken,
+  DoctypeToken,
+  EOFToken,
+  ParseError,
+  Tag,
+  TokenSinkResult,
+} from "./tokens.js";
+import {
+  InsertionMode,
+  doctypeErrorAndQuirks,
+  isAllWhitespace,
+} from "./treebuilder_utils.js";
 
 function lowerAscii(value) {
   return value ? String(value).toLowerCase() : "";
@@ -42,7 +54,9 @@ function handleDoctype(self, token) {
   }
 
   const doctype = token.doctype;
-  const [parseError, quirksMode] = doctypeErrorAndQuirks(doctype, { iframeSrcdoc: self.iframe_srcdoc });
+  const [parseError, quirksMode] = doctypeErrorAndQuirks(doctype, {
+    iframeSrcdoc: self.iframe_srcdoc,
+  });
 
   const node = new Node("!doctype", { data: doctype, namespace: null });
   self.document.append_child(node);
@@ -73,7 +87,8 @@ function modeInitial(self, token) {
   }
 
   if (token instanceof Tag) {
-    if (token.kind === Tag.START) self._parse_error("expected-doctype-but-got-start-tag", token.name);
+    if (token.kind === Tag.START)
+      self._parse_error("expected-doctype-but-got-start-tag", token.name);
     else self._parse_error("expected-doctype-but-got-end-tag", token.name);
   }
   self._set_quirks_mode("quirks");
@@ -184,7 +199,9 @@ function modeInHead(self, token) {
     const leadingWs = data.slice(0, i);
     const remaining = data.slice(i);
     if (leadingWs) {
-      const current = self.open_elements.length ? self.open_elements[self.open_elements.length - 1] : null;
+      const current = self.open_elements.length
+        ? self.open_elements[self.open_elements.length - 1]
+        : null;
       if (current && current.has_child_nodes()) self._append_text(leadingWs);
     }
     self._pop_current();
@@ -204,7 +221,10 @@ function modeInHead(self, token) {
       return ["reprocess", InsertionMode.AFTER_HEAD, token];
     }
 
-    if (token.kind === Tag.START && ["base", "basefont", "bgsound", "link", "meta"].includes(token.name)) {
+    if (
+      token.kind === Tag.START &&
+      ["base", "basefont", "bgsound", "link", "meta"].includes(token.name)
+    ) {
       self._insert_element(token, { push: false });
       return null;
     }
@@ -219,7 +239,7 @@ function modeInHead(self, token) {
     }
 
     if (token.kind === Tag.END && token.name === "template") {
-      const hasTemplate = self.open_elements.some((node) => node.name === "template");
+      const hasTemplate = self.open_elements.some(node => node.name === "template");
       if (!hasTemplate) return null;
       self._generate_implied_end_tags();
       self._pop_until_inclusive("template");
@@ -229,7 +249,10 @@ function modeInHead(self, token) {
       return null;
     }
 
-    if (token.kind === Tag.START && ["title", "style", "script", "noframes"].includes(token.name)) {
+    if (
+      token.kind === Tag.START &&
+      ["title", "style", "script", "noframes"].includes(token.name)
+    ) {
       self._insert_element(token, { push: true });
       self.original_mode = self.mode;
       self.mode = InsertionMode.TEXT;
@@ -279,7 +302,10 @@ function modeInHeadNoscript(self, token) {
   if (token instanceof Tag) {
     if (token.kind === Tag.START) {
       if (token.name === "html") return modeInBody(self, token);
-      if (["basefont", "bgsound", "link", "meta", "noframes", "style"].includes(token.name)) return modeInHead(self, token);
+      if (
+        ["basefont", "bgsound", "link", "meta", "noframes", "style"].includes(token.name)
+      )
+        return modeInHead(self, token);
       if (["head", "noscript"].includes(token.name)) {
         self._parse_error("unexpected-start-tag", token.name);
         return null;
@@ -373,7 +399,17 @@ function modeAfterHead(self, token) {
 
     if (
       token.kind === Tag.START &&
-      ["base", "basefont", "bgsound", "link", "meta", "title", "style", "script", "noscript"].includes(token.name)
+      [
+        "base",
+        "basefont",
+        "bgsound",
+        "link",
+        "meta",
+        "title",
+        "style",
+        "script",
+        "noscript",
+      ].includes(token.name)
     ) {
       self.open_elements.push(self.head_element);
       const result = modeInHead(self, token);
@@ -388,7 +424,8 @@ function modeAfterHead(self, token) {
       return ["reprocess", InsertionMode.IN_HEAD, token];
     }
 
-    if (token.kind === Tag.END && token.name === "template") return modeInHead(self, token);
+    if (token.kind === Tag.END && token.name === "template")
+      return modeInHead(self, token);
 
     if (token.kind === Tag.END && token.name === "body") {
       self._insert_body_if_missing();
@@ -422,7 +459,9 @@ function modeText(self, token) {
     return null;
   }
   if (token instanceof EOFToken) {
-    const tagName = self.open_elements.length ? self.open_elements[self.open_elements.length - 1].name : null;
+    const tagName = self.open_elements.length
+      ? self.open_elements[self.open_elements.length - 1].name
+      : null;
     self._parse_error("expected-named-closing-tag-but-got-eof", tagName);
     self._pop_current();
     self.mode = self.original_mode || InsertionMode.IN_BODY;
@@ -487,7 +526,8 @@ function handleBodyStartHtml(self, token) {
     self._parse_error("unexpected-start-tag", token.name);
     return null;
   }
-  if (self.open_elements.length) self._add_missing_attributes(self.open_elements[0], token.attrs);
+  if (self.open_elements.length)
+    self._add_missing_attributes(self.open_elements[0], token.attrs);
   return null;
 }
 
@@ -524,7 +564,10 @@ function handleBodyStartBlockWithP(self, token) {
 
 function handleBodyStartHeading(self, token) {
   self._close_p_element();
-  if (self.open_elements.length && HEADING_ELEMENTS.has(self.open_elements[self.open_elements.length - 1].name)) {
+  if (
+    self.open_elements.length &&
+    HEADING_ELEMENTS.has(self.open_elements[self.open_elements.length - 1].name)
+  ) {
     self._parse_error("unexpected-start-tag", token.name);
     self._pop_current();
   }
@@ -771,7 +814,10 @@ function handleBodyStartSelect(self, token) {
 }
 
 function handleBodyStartOption(self, token) {
-  if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+  if (
+    self.open_elements.length &&
+    self.open_elements[self.open_elements.length - 1].name === "option"
+  ) {
     self.open_elements.pop();
   }
   self._reconstruct_active_formatting_elements();
@@ -780,7 +826,10 @@ function handleBodyStartOption(self, token) {
 }
 
 function handleBodyStartOptgroup(self, token) {
-  if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+  if (
+    self.open_elements.length &&
+    self.open_elements[self.open_elements.length - 1].name === "option"
+  ) {
     self.open_elements.pop();
   }
   self._reconstruct_active_formatting_elements();
@@ -795,7 +844,10 @@ function handleBodyStartRpRt(self, token) {
 }
 
 function handleBodyStartRbRtc(self, token) {
-  if (self.open_elements.length && SET_RB_RP_RT_RTC.has(self.open_elements[self.open_elements.length - 1].name)) {
+  if (
+    self.open_elements.length &&
+    SET_RB_RP_RT_RTC.has(self.open_elements[self.open_elements.length - 1].name)
+  ) {
     self._generate_implied_end_tags();
   }
   self._insert_element(token, { push: true });
@@ -810,7 +862,11 @@ function handleBodyStartTableParseError(self, token) {
 function handleBodyStartDefault(self, token) {
   self._reconstruct_active_formatting_elements();
   self._insert_element(token, { push: true });
-  if (token.selfClosing) self._parse_error("non-void-html-element-start-tag-with-trailing-solidus", token.name);
+  if (token.selfClosing)
+    self._parse_error(
+      "non-void-html-element-start-tag-with-trailing-solidus",
+      token.name
+    );
   self.frameset_ok = false;
   return null;
 }
@@ -993,7 +1049,10 @@ function handleBodyEndHeading(self, token) {
     return null;
   }
   self._generate_implied_end_tags();
-  if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name !== name) {
+  if (
+    self.open_elements.length &&
+    self.open_elements[self.open_elements.length - 1].name !== name
+  ) {
     self._parse_error("end-tag-too-early", name);
   }
   while (self.open_elements.length) {
@@ -1010,7 +1069,10 @@ function handleBodyEndBlock(self, token) {
     return null;
   }
   self._generate_implied_end_tags();
-  if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name !== name) {
+  if (
+    self.open_elements.length &&
+    self.open_elements[self.open_elements.length - 1].name !== name
+  ) {
     self._parse_error("end-tag-too-early", name);
   }
   self._pop_until_any_inclusive(new Set([name]));
@@ -1018,7 +1080,7 @@ function handleBodyEndBlock(self, token) {
 }
 
 function handleBodyEndTemplate(self, token) {
-  const hasTemplate = self.open_elements.some((node) => node.name === "template");
+  const hasTemplate = self.open_elements.some(node => node.name === "template");
   if (!hasTemplate) return null;
   self._generate_implied_end_tags();
   self._pop_until_inclusive("template");
@@ -1125,7 +1187,8 @@ function modeInBody(self, token) {
 }
 
 function modeAfterBody(self, token) {
-  if (token instanceof CharacterToken && isAllWhitespace(token.data)) return modeInBody(self, token);
+  if (token instanceof CharacterToken && isAllWhitespace(token.data))
+    return modeInBody(self, token);
   if (token instanceof CommentToken) {
     const html = self.open_elements.length ? self.open_elements[0] : null;
     self._append_comment(token.data, html || undefined);
@@ -1155,8 +1218,10 @@ function modeAfterAfterBody(self, token) {
     self._append_comment_to_document(token.data);
     return null;
   }
-  if (token instanceof CharacterToken && isAllWhitespace(token.data)) return modeInBody(self, token);
-  if (token instanceof Tag && token.kind === Tag.START && token.name === "html") return modeInBody(self, token);
+  if (token instanceof CharacterToken && isAllWhitespace(token.data))
+    return modeInBody(self, token);
+  if (token instanceof Tag && token.kind === Tag.START && token.name === "html")
+    return modeInBody(self, token);
   if (token instanceof EOFToken) return null;
   self._parse_error("unexpected-token-after-after-body");
   self.mode = InsertionMode.IN_BODY;
@@ -1164,7 +1229,13 @@ function modeAfterAfterBody(self, token) {
 }
 
 const TABLE_BODY_CONTEXT_TAGS = new Set(["tbody", "tfoot", "thead"]);
-const TABLE_BODY_CONTEXT_CLEAR_UNTIL = new Set(["tbody", "tfoot", "thead", "template", "html"]);
+const TABLE_BODY_CONTEXT_CLEAR_UNTIL = new Set([
+  "tbody",
+  "tfoot",
+  "thead",
+  "template",
+  "html",
+]);
 const TABLE_ROW_CONTEXT_CLEAR_UNTIL = new Set(["tr", "template", "html"]);
 const TABLE_CONTEXT_CLEAR_UNTIL = new Set(["table", "template", "html"]);
 
@@ -1312,7 +1383,8 @@ function modeInTable(self, token) {
 
   if (token instanceof EOFToken) {
     if (self.template_modes.length) return modeInTemplate(self, token);
-    if (self._has_in_table_scope("table")) self._parse_error("expected-closing-tag-but-got-eof", "table");
+    if (self._has_in_table_scope("table"))
+      self._parse_error("expected-closing-tag-but-got-eof", "table");
     return null;
   }
 
@@ -1337,7 +1409,17 @@ function modeInTableText(self, token) {
   return ["reprocess", original, token];
 }
 
-const CAPTION_STRUCTURE_START_TAGS = new Set(["caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "td", "th"]);
+const CAPTION_STRUCTURE_START_TAGS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "tbody",
+  "tfoot",
+  "thead",
+  "tr",
+  "td",
+  "th",
+]);
 const CAPTION_END_TAGS_NEVER_IN_SCOPE = new Set(["tbody", "tfoot", "thead"]);
 
 function modeInCaption(self, token) {
@@ -1352,12 +1434,14 @@ function modeInCaption(self, token) {
     if (token.kind === Tag.START) {
       if (CAPTION_STRUCTURE_START_TAGS.has(name)) {
         self._parse_error("unexpected-start-tag-implies-end-tag", name);
-        if (self._close_caption_element()) return ["reprocess", InsertionMode.IN_TABLE, token];
+        if (self._close_caption_element())
+          return ["reprocess", InsertionMode.IN_TABLE, token];
         return null;
       }
       if (name === "table") {
         self._parse_error("unexpected-start-tag-implies-end-tag", name);
-        if (self._close_caption_element()) return ["reprocess", InsertionMode.IN_TABLE, token];
+        if (self._close_caption_element())
+          return ["reprocess", InsertionMode.IN_TABLE, token];
         return modeInBody(self, token);
       }
       return modeInBody(self, token);
@@ -1369,7 +1453,8 @@ function modeInCaption(self, token) {
       return null;
     }
     if (name === "table") {
-      if (self._close_caption_element()) return ["reprocess", InsertionMode.IN_TABLE, token];
+      if (self._close_caption_element())
+        return ["reprocess", InsertionMode.IN_TABLE, token];
       return null;
     }
     if (CAPTION_END_TAGS_NEVER_IN_SCOPE.has(name)) {
@@ -1384,7 +1469,9 @@ function modeInCaption(self, token) {
 }
 
 function modeInColumnGroup(self, token) {
-  const current = self.open_elements.length ? self.open_elements[self.open_elements.length - 1] : null;
+  const current = self.open_elements.length
+    ? self.open_elements[self.open_elements.length - 1]
+    : null;
 
   if (token instanceof CharacterToken) {
     const data = token.data || "";
@@ -1437,7 +1524,11 @@ function modeInColumnGroup(self, token) {
 
       if (
         self.fragment_context &&
-        (self.fragment_context.tag_name || self.fragment_context.tagName || "").toLowerCase() === "colgroup" &&
+        (
+          self.fragment_context.tag_name ||
+          self.fragment_context.tagName ||
+          ""
+        ).toLowerCase() === "colgroup" &&
         !self._has_in_table_scope("table")
       ) {
         self._parse_error("unexpected-start-tag-in-column-group", name);
@@ -1492,11 +1583,27 @@ function modeInColumnGroup(self, token) {
   return null;
 }
 
-const TABLE_BODY_EXIT_START_TAGS = new Set(["caption", "col", "colgroup", "tbody", "tfoot", "thead", "table"]);
-const TABLE_BODY_UNEXPECTED_END_TAGS = new Set(["caption", "col", "colgroup", "td", "th", "tr"]);
+const TABLE_BODY_EXIT_START_TAGS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "tbody",
+  "tfoot",
+  "thead",
+  "table",
+]);
+const TABLE_BODY_UNEXPECTED_END_TAGS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "td",
+  "th",
+  "tr",
+]);
 
 function modeInTableBody(self, token) {
-  if (token instanceof CharacterToken || token instanceof CommentToken) return modeInTable(self, token);
+  if (token instanceof CharacterToken || token instanceof CommentToken)
+    return modeInTable(self, token);
 
   if (token instanceof Tag) {
     const name = token.name;
@@ -1517,7 +1624,9 @@ function modeInTableBody(self, token) {
       }
 
       if (TABLE_BODY_EXIT_START_TAGS.has(name)) {
-        const current = self.open_elements.length ? self.open_elements[self.open_elements.length - 1] : null;
+        const current = self.open_elements.length
+          ? self.open_elements[self.open_elements.length - 1]
+          : null;
         if (current && current.name === "template") {
           self._parse_error("unexpected-start-tag-in-template-table-context", name);
           return null;
@@ -1526,7 +1635,13 @@ function modeInTableBody(self, token) {
           self.fragment_context &&
           current &&
           current.name === "html" &&
-          TABLE_BODY_CONTEXT_TAGS.has((self.fragment_context.tag_name || self.fragment_context.tagName || "").toLowerCase())
+          TABLE_BODY_CONTEXT_TAGS.has(
+            (
+              self.fragment_context.tag_name ||
+              self.fragment_context.tagName ||
+              ""
+            ).toLowerCase()
+          )
         ) {
           self._parse_error("unexpected-start-tag");
           return null;
@@ -1555,7 +1670,9 @@ function modeInTableBody(self, token) {
     }
 
     if (name === "table") {
-      const current = self.open_elements.length ? self.open_elements[self.open_elements.length - 1] : null;
+      const current = self.open_elements.length
+        ? self.open_elements[self.open_elements.length - 1]
+        : null;
       if (current && current.name === "template") {
         self._parse_error("unexpected-end-tag", name);
         return null;
@@ -1564,7 +1681,13 @@ function modeInTableBody(self, token) {
         self.fragment_context &&
         current &&
         current.name === "html" &&
-        TABLE_BODY_CONTEXT_TAGS.has((self.fragment_context.tag_name || self.fragment_context.tagName || "").toLowerCase())
+        TABLE_BODY_CONTEXT_TAGS.has(
+          (
+            self.fragment_context.tag_name ||
+            self.fragment_context.tagName ||
+            ""
+          ).toLowerCase()
+        )
       ) {
         self._parse_error("unexpected-end-tag", name);
         return null;
@@ -1586,11 +1709,21 @@ function modeInTableBody(self, token) {
   return null;
 }
 
-const ROW_TABLE_EXIT_START_TAGS = new Set(["caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "table"]);
+const ROW_TABLE_EXIT_START_TAGS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "tbody",
+  "tfoot",
+  "thead",
+  "tr",
+  "table",
+]);
 const ROW_UNEXPECTED_END_TAGS = new Set(["caption", "col", "group", "td", "th"]);
 
 function modeInRow(self, token) {
-  if (token instanceof CharacterToken || token instanceof CommentToken) return modeInTable(self, token);
+  if (token instanceof CharacterToken || token instanceof CommentToken)
+    return modeInTable(self, token);
 
   if (token instanceof Tag) {
     const name = token.name;
@@ -1656,7 +1789,17 @@ function modeInRow(self, token) {
   return null;
 }
 
-const CELL_STRUCTURE_TAGS = new Set(["caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"]);
+const CELL_STRUCTURE_TAGS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+]);
 
 function modeInCell(self, token) {
   if (token instanceof CharacterToken) {
@@ -1699,7 +1842,13 @@ function modeInCell(self, token) {
       return null;
     }
 
-    if (name === "table" || name === "tbody" || name === "tfoot" || name === "thead" || name === "tr") {
+    if (
+      name === "table" ||
+      name === "tbody" ||
+      name === "tfoot" ||
+      name === "thead" ||
+      name === "tr"
+    ) {
       if (!self._has_in_table_scope(name)) {
         self._parse_error("unexpected-end-tag", name);
         return null;
@@ -1729,7 +1878,8 @@ function modeInFrameset(self, token) {
     const data = token.data || "";
     let whitespace = "";
     for (const ch of data) {
-      if (ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ") whitespace += ch;
+      if (ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ")
+        whitespace += ch;
     }
     if (whitespace) self._append_text(whitespace);
     return null;
@@ -1741,18 +1891,25 @@ function modeInFrameset(self, token) {
   }
 
   if (token instanceof Tag) {
-    if (token.kind === Tag.START && token.name === "html") return ["reprocess", InsertionMode.IN_BODY, token];
+    if (token.kind === Tag.START && token.name === "html")
+      return ["reprocess", InsertionMode.IN_BODY, token];
     if (token.kind === Tag.START && token.name === "frameset") {
       self._insert_element(token, { push: true });
       return null;
     }
     if (token.kind === Tag.END && token.name === "frameset") {
-      if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "html") {
+      if (
+        self.open_elements.length &&
+        self.open_elements[self.open_elements.length - 1].name === "html"
+      ) {
         self._parse_error("unexpected-end-tag", token.name);
         return null;
       }
       self.open_elements.pop();
-      if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name !== "frameset") {
+      if (
+        self.open_elements.length &&
+        self.open_elements[self.open_elements.length - 1].name !== "frameset"
+      ) {
         self.mode = InsertionMode.AFTER_FRAMESET;
       }
       return null;
@@ -1771,8 +1928,14 @@ function modeInFrameset(self, token) {
   }
 
   if (token instanceof EOFToken) {
-    if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name !== "html") {
-      self._parse_error("expected-closing-tag-but-got-eof", self.open_elements[self.open_elements.length - 1].name);
+    if (
+      self.open_elements.length &&
+      self.open_elements[self.open_elements.length - 1].name !== "html"
+    ) {
+      self._parse_error(
+        "expected-closing-tag-but-got-eof",
+        self.open_elements[self.open_elements.length - 1].name
+      );
     }
     return null;
   }
@@ -1786,7 +1949,8 @@ function modeAfterFrameset(self, token) {
     const data = token.data || "";
     let whitespace = "";
     for (const ch of data) {
-      if (ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ") whitespace += ch;
+      if (ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ")
+        whitespace += ch;
     }
     if (whitespace) self._append_text(whitespace);
     return null;
@@ -1796,7 +1960,8 @@ function modeAfterFrameset(self, token) {
     return null;
   }
   if (token instanceof Tag) {
-    if (token.kind === Tag.START && token.name === "html") return ["reprocess", InsertionMode.IN_BODY, token];
+    if (token.kind === Tag.START && token.name === "html")
+      return ["reprocess", InsertionMode.IN_BODY, token];
     if (token.kind === Tag.END && token.name === "html") {
       self.mode = InsertionMode.AFTER_AFTER_FRAMESET;
       return null;
@@ -1827,7 +1992,8 @@ function modeAfterAfterFrameset(self, token) {
     return null;
   }
   if (token instanceof Tag) {
-    if (token.kind === Tag.START && token.name === "html") return ["reprocess", InsertionMode.IN_BODY, token];
+    if (token.kind === Tag.START && token.name === "html")
+      return ["reprocess", InsertionMode.IN_BODY, token];
     if (token.kind === Tag.START && token.name === "noframes") {
       self._insert_element(token, { push: true });
       self.original_mode = self.mode;
@@ -1842,8 +2008,26 @@ function modeAfterAfterFrameset(self, token) {
   return ["reprocess", InsertionMode.IN_FRAMESET, token];
 }
 
-const SELECT_END_TAG_TABLE_ELEMENTS = new Set(["caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"]);
-const SELECT_ALLOWED_ELEMENTS = new Set(["p", "div", "span", "button", "datalist", "selectedcontent"]);
+const SELECT_END_TAG_TABLE_ELEMENTS = new Set([
+  "caption",
+  "col",
+  "colgroup",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "table",
+]);
+const SELECT_ALLOWED_ELEMENTS = new Set([
+  "p",
+  "div",
+  "span",
+  "button",
+  "datalist",
+  "selectedcontent",
+]);
 const SELECT_HEAD_TAGS = new Set([
   "base",
   "basefont",
@@ -1885,7 +2069,10 @@ function modeInSelect(self, token) {
     if (token.kind === Tag.START) {
       if (name === "html") return ["reprocess", InsertionMode.IN_BODY, token];
       if (name === "option") {
-        if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+        if (
+          self.open_elements.length &&
+          self.open_elements[self.open_elements.length - 1].name === "option"
+        ) {
           self.open_elements.pop();
         }
         self._reconstruct_active_formatting_elements();
@@ -1893,10 +2080,16 @@ function modeInSelect(self, token) {
         return null;
       }
       if (name === "optgroup") {
-        if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+        if (
+          self.open_elements.length &&
+          self.open_elements[self.open_elements.length - 1].name === "option"
+        ) {
           self.open_elements.pop();
         }
-        if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "optgroup") {
+        if (
+          self.open_elements.length &&
+          self.open_elements[self.open_elements.length - 1].name === "optgroup"
+        ) {
           self.open_elements.pop();
         }
         self._reconstruct_active_formatting_elements();
@@ -1939,10 +2132,16 @@ function modeInSelect(self, token) {
         return null;
       }
       if (name === "hr") {
-        if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+        if (
+          self.open_elements.length &&
+          self.open_elements[self.open_elements.length - 1].name === "option"
+        ) {
           self.open_elements.pop();
         }
-        if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "optgroup") {
+        if (
+          self.open_elements.length &&
+          self.open_elements[self.open_elements.length - 1].name === "optgroup"
+        ) {
           self.open_elements.pop();
         }
         self._reconstruct_active_formatting_elements();
@@ -1974,10 +2173,16 @@ function modeInSelect(self, token) {
 
     // End tag.
     if (name === "optgroup") {
-      if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+      if (
+        self.open_elements.length &&
+        self.open_elements[self.open_elements.length - 1].name === "option"
+      ) {
         self.open_elements.pop();
       }
-      if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "optgroup") {
+      if (
+        self.open_elements.length &&
+        self.open_elements[self.open_elements.length - 1].name === "optgroup"
+      ) {
         self.open_elements.pop();
       } else {
         self._parse_error("unexpected-end-tag", name);
@@ -1985,7 +2190,10 @@ function modeInSelect(self, token) {
       return null;
     }
     if (name === "option") {
-      if (self.open_elements.length && self.open_elements[self.open_elements.length - 1].name === "option") {
+      if (
+        self.open_elements.length &&
+        self.open_elements[self.open_elements.length - 1].name === "option"
+      ) {
         self.open_elements.pop();
       } else {
         self._parse_error("unexpected-end-tag", name);
@@ -2056,7 +2264,13 @@ function modeInTemplate(self, token) {
 
   if (token instanceof Tag) {
     if (token.kind === Tag.START) {
-      if (token.name === "caption" || token.name === "colgroup" || token.name === "tbody" || token.name === "tfoot" || token.name === "thead") {
+      if (
+        token.name === "caption" ||
+        token.name === "colgroup" ||
+        token.name === "tbody" ||
+        token.name === "tfoot" ||
+        token.name === "thead"
+      ) {
         self.template_modes.pop();
         self.template_modes.push(InsertionMode.IN_TABLE);
         self.mode = InsertionMode.IN_TABLE;
@@ -2089,13 +2303,14 @@ function modeInTemplate(self, token) {
       }
     }
 
-    if (token.kind === Tag.END && token.name === "template") return modeInHead(self, token);
+    if (token.kind === Tag.END && token.name === "template")
+      return modeInHead(self, token);
 
     if (SELECT_HEAD_TAGS.has(token.name)) return modeInHead(self, token);
   }
 
   if (token instanceof EOFToken) {
-    const hasTemplate = self.open_elements.some((node) => node.name === "template");
+    const hasTemplate = self.open_elements.some(node => node.name === "template");
     if (!hasTemplate) return null;
     self._parse_error("expected-closing-tag-but-got-eof", "template");
     self._pop_until_inclusive("template");
@@ -2149,7 +2364,8 @@ export class TreeBuilder {
     this.tokenizer = null;
     this.fragment_context_element = null;
 
-    if (fragment_context != null) this.document = new Node("#document-fragment", { namespace: null });
+    if (fragment_context != null)
+      this.document = new Node("#document-fragment", { namespace: null });
     else this.document = new Node("#document", { namespace: null });
 
     this.mode = InsertionMode.INITIAL;
@@ -2187,13 +2403,21 @@ export class TreeBuilder {
       }
 
       if (name === "html") this.mode = InsertionMode.BEFORE_HEAD;
-      else if ((namespace == null || namespace === "html") && ["tbody", "thead", "tfoot"].includes(name))
+      else if (
+        (namespace == null || namespace === "html") &&
+        ["tbody", "thead", "tfoot"].includes(name)
+      )
         this.mode = InsertionMode.IN_TABLE_BODY;
-      else if ((namespace == null || namespace === "html") && name === "tr") this.mode = InsertionMode.IN_ROW;
-      else if ((namespace == null || namespace === "html") && ["td", "th"].includes(name)) this.mode = InsertionMode.IN_CELL;
-      else if ((namespace == null || namespace === "html") && name === "caption") this.mode = InsertionMode.IN_CAPTION;
-      else if ((namespace == null || namespace === "html") && name === "colgroup") this.mode = InsertionMode.IN_COLUMN_GROUP;
-      else if ((namespace == null || namespace === "html") && name === "table") this.mode = InsertionMode.IN_TABLE;
+      else if ((namespace == null || namespace === "html") && name === "tr")
+        this.mode = InsertionMode.IN_ROW;
+      else if ((namespace == null || namespace === "html") && ["td", "th"].includes(name))
+        this.mode = InsertionMode.IN_CELL;
+      else if ((namespace == null || namespace === "html") && name === "caption")
+        this.mode = InsertionMode.IN_CAPTION;
+      else if ((namespace == null || namespace === "html") && name === "colgroup")
+        this.mode = InsertionMode.IN_COLUMN_GROUP;
+      else if ((namespace == null || namespace === "html") && name === "table")
+        this.mode = InsertionMode.IN_TABLE;
       else this.mode = InsertionMode.IN_BODY;
 
       this.frameset_ok = false;
@@ -2206,7 +2430,9 @@ export class TreeBuilder {
 
   _parse_error(code, tag_name = null) {
     if (!this.collect_errors) return;
-    this.errors.push(new ParseError(code, { message: tag_name ? `${code}: ${tag_name}` : code }));
+    this.errors.push(
+      new ParseError(code, { message: tag_name ? `${code}: ${tag_name}` : code })
+    );
   }
 
   _has_element_in_scope(target, terminators = null, checkIntegrationPoints = true) {
@@ -2218,7 +2444,11 @@ export class TreeBuilder {
       const ns = node.namespace;
       if (ns === "html" || ns == null) {
         if (terms.has(node.name)) return false;
-      } else if (checkIntegrationPoints && (this._is_html_integration_point(node) || this._is_mathml_text_integration_point(node))) {
+      } else if (
+        checkIntegrationPoints &&
+        (this._is_html_integration_point(node) ||
+          this._is_mathml_text_integration_point(node))
+      ) {
         return false;
       }
     }
@@ -2246,7 +2476,10 @@ export class TreeBuilder {
   _close_p_element() {
     if (this._has_element_in_button_scope("p")) {
       this._generate_implied_end_tags("p");
-      if (this.open_elements.length && this.open_elements[this.open_elements.length - 1].name !== "p") {
+      if (
+        this.open_elements.length &&
+        this.open_elements[this.open_elements.length - 1].name !== "p"
+      ) {
         this._parse_error("end-tag-too-early", "p");
       }
       this._pop_until_inclusive("p");
@@ -2275,7 +2508,8 @@ export class TreeBuilder {
     while (index >= 0) {
       const node = this.open_elements[index];
       if (node.name === name) {
-        if (index !== this.open_elements.length - 1) this._parse_error("end-tag-too-early");
+        if (index !== this.open_elements.length - 1)
+          this._parse_error("end-tag-too-early");
         this.open_elements.splice(index);
         return;
       }
@@ -2376,8 +2610,13 @@ export class TreeBuilder {
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const currentNode = this.open_elements.length ? this.open_elements[this.open_elements.length - 1] : null;
-      const isHtmlNamespace = currentNode == null || currentNode.namespace == null || currentNode.namespace === "html";
+      const currentNode = this.open_elements.length
+        ? this.open_elements[this.open_elements.length - 1]
+        : null;
+      const isHtmlNamespace =
+        currentNode == null ||
+        currentNode.namespace == null ||
+        currentNode.namespace === "html";
 
       let result = null;
 
@@ -2388,7 +2627,10 @@ export class TreeBuilder {
       } else if (this._should_use_foreign_content(currentToken)) {
         result = this._process_foreign_content(currentToken);
       } else {
-        if (currentToken instanceof CharacterToken && this._is_mathml_text_integration_point(currentNode)) {
+        if (
+          currentToken instanceof CharacterToken &&
+          this._is_mathml_text_integration_point(currentNode)
+        ) {
           let data = currentToken.data || "";
           if (data.includes("\x00")) {
             this._parse_error("invalid-codepoint");
@@ -2408,7 +2650,8 @@ export class TreeBuilder {
           result = null;
         } else {
           const isIntegrationPoint =
-            this._is_mathml_text_integration_point(currentNode) || this._is_html_integration_point(currentNode);
+            this._is_mathml_text_integration_point(currentNode) ||
+            this._is_html_integration_point(currentNode);
 
           if (
             isIntegrationPoint &&
@@ -2460,8 +2703,13 @@ export class TreeBuilder {
   }
 
   processCharacters(data) {
-    const currentNode = this.open_elements.length ? this.open_elements[this.open_elements.length - 1] : null;
-    const isHtmlNamespace = currentNode == null || currentNode.namespace == null || currentNode.namespace === "html";
+    const currentNode = this.open_elements.length
+      ? this.open_elements[this.open_elements.length - 1]
+      : null;
+    const isHtmlNamespace =
+      currentNode == null ||
+      currentNode.namespace == null ||
+      currentNode.namespace === "html";
     if (!isHtmlNamespace) return this.processToken(new CharacterToken(data));
     return this.processToken(new CharacterToken(data));
   }
@@ -2517,7 +2765,8 @@ export class TreeBuilder {
     if (!TABLE_FOSTER_TARGETS.has(target.name) && !isTemplateNode(target)) {
       const children = target.children;
       if (children.length && children[children.length - 1].name === "#text") {
-        children[children.length - 1].data = (children[children.length - 1].data || "") + text;
+        children[children.length - 1].data =
+          (children[children.length - 1].data || "") + text;
         return;
       }
       target.append_child(new Node("#text", { data: text, namespace: null }));
@@ -2528,17 +2777,25 @@ export class TreeBuilder {
     const foster = this._should_foster_parenting(adjustedTarget, { isText: true });
     if (foster) this._reconstruct_active_formatting_elements();
 
-    const [parent, position] = this._appropriate_insertion_location(null, { foster_parenting: foster });
+    const [parent, position] = this._appropriate_insertion_location(null, {
+      foster_parenting: foster,
+    });
     if (position > 0 && parent.children[position - 1]?.name === "#text") {
-      parent.children[position - 1].data = (parent.children[position - 1].data || "") + text;
+      parent.children[position - 1].data =
+        (parent.children[position - 1].data || "") + text;
       return;
     }
 
-    this._insert_node_at(parent, position, new Node("#text", { data: text, namespace: null }));
+    this._insert_node_at(
+      parent,
+      position,
+      new Node("#text", { data: text, namespace: null })
+    );
   }
 
   _current_node_or_html() {
-    if (this.open_elements.length) return this.open_elements[this.open_elements.length - 1];
+    if (this.open_elements.length)
+      return this.open_elements[this.open_elements.length - 1];
     for (const child of this.document.children) {
       if (child.name === "html") return child;
     }
@@ -2565,7 +2822,9 @@ export class TreeBuilder {
 
     const target = this._current_node_or_html();
     const foster = this._should_foster_parenting(target, { forTag: tag.name });
-    const [parent, position] = this._appropriate_insertion_location(null, { foster_parenting: foster });
+    const [parent, position] = this._appropriate_insertion_location(null, {
+      foster_parenting: foster,
+    });
     this._insert_node_at(parent, position, node);
     if (push) this.open_elements.push(node);
     return node;
@@ -2705,7 +2964,8 @@ export class TreeBuilder {
   }
 
   _remove_formatting_entry(index) {
-    if (index < 0 || index >= this.active_formatting.length) throw new Error(`Invalid formatting index: ${index}`);
+    if (index < 0 || index >= this.active_formatting.length)
+      throw new Error(`Invalid formatting index: ${index}`);
     this.active_formatting.splice(index, 1);
   }
 
@@ -2733,7 +2993,12 @@ export class TreeBuilder {
         index += 1;
         continue;
       }
-      const tag = new Tag(Tag.START, entry.name, this._clone_attributes(entry.attrs), false);
+      const tag = new Tag(
+        Tag.START,
+        entry.name,
+        this._clone_attributes(entry.attrs),
+        false
+      );
       const newNode = this._insert_element(tag, { push: true });
       entry.node = newNode;
       index += 1;
@@ -2741,7 +3006,10 @@ export class TreeBuilder {
   }
 
   _adoption_agency(subject) {
-    if (this.open_elements.length && this.open_elements[this.open_elements.length - 1].name === subject) {
+    if (
+      this.open_elements.length &&
+      this.open_elements[this.open_elements.length - 1].name === subject
+    ) {
       if (!this._has_active_formatting_entry(subject)) {
         this._pop_until_inclusive(subject);
         return;
@@ -2773,7 +3041,11 @@ export class TreeBuilder {
 
       let furthestBlock = null;
       const formattingElementInOpenIndex = this.open_elements.indexOf(formattingElement);
-      for (let i = formattingElementInOpenIndex + 1; i < this.open_elements.length; i += 1) {
+      for (
+        let i = formattingElementInOpenIndex + 1;
+        i < this.open_elements.length;
+        i += 1
+      ) {
         const node = this.open_elements[i];
         if (this._is_special_element(node)) {
           furthestBlock = node;
@@ -2819,7 +3091,11 @@ export class TreeBuilder {
         }
 
         const entry = this.active_formatting[nodeFormattingIndex];
-        const newElement = this._create_element(entry.name, entry.node.namespace, entry.attrs);
+        const newElement = this._create_element(
+          entry.name,
+          entry.node.namespace,
+          entry.attrs
+        );
         entry.node = newElement;
         this.open_elements[this.open_elements.indexOf(node)] = newElement;
         node = newElement;
@@ -2836,7 +3112,9 @@ export class TreeBuilder {
       if (lastNode.parent) lastNode.parent.remove_child(lastNode);
 
       if (this._should_foster_parenting(commonAncestor, { forTag: lastNode.name })) {
-        const [parent, position] = this._appropriate_insertion_location(commonAncestor, { foster_parenting: true });
+        const [parent, position] = this._appropriate_insertion_location(commonAncestor, {
+          foster_parenting: true,
+        });
         this._insert_node_at(parent, position, lastNode);
       } else if (isTemplateNode(commonAncestor) && commonAncestor.templateContent) {
         commonAncestor.templateContent.append_child(lastNode);
@@ -2845,7 +3123,11 @@ export class TreeBuilder {
       }
 
       const entry = this.active_formatting[formattingElementIndex];
-      const newFormattingElement = this._create_element(entry.name, entry.node.namespace, entry.attrs);
+      const newFormattingElement = this._create_element(
+        entry.name,
+        entry.node.namespace,
+        entry.attrs
+      );
       entry.node = newFormattingElement;
 
       while (furthestBlock.has_child_nodes && furthestBlock.has_child_nodes()) {
@@ -2875,20 +3157,29 @@ export class TreeBuilder {
   }
 
   _insert_node_at(parent, index, node) {
-    const ref = index != null && index < parent.children.length ? parent.children[index] : null;
+    const ref =
+      index != null && index < parent.children.length ? parent.children[index] : null;
     parent.insert_before(node, ref);
   }
 
-  _appropriate_insertion_location(override_target = null, { foster_parenting = false } = {}) {
+  _appropriate_insertion_location(
+    override_target = null,
+    { foster_parenting = false } = {}
+  ) {
     const target = override_target || this._current_node_or_html();
     if (foster_parenting && TABLE_FOSTER_TARGETS.has(target.name)) {
       const lastTemplate = this._find_last_on_stack("template");
       const lastTable = this._find_last_on_stack("table");
       if (
         lastTemplate &&
-        (lastTable == null || this.open_elements.indexOf(lastTemplate) > this.open_elements.indexOf(lastTable))
+        (lastTable == null ||
+          this.open_elements.indexOf(lastTemplate) >
+            this.open_elements.indexOf(lastTable))
       ) {
-        return [lastTemplate.templateContent, lastTemplate.templateContent.children.length];
+        return [
+          lastTemplate.templateContent,
+          lastTemplate.templateContent.children.length,
+        ];
       }
       if (!lastTable) return [target, target.children.length];
       const parent = lastTable.parent;
@@ -2896,7 +3187,8 @@ export class TreeBuilder {
       const pos = parent.children.indexOf(lastTable);
       return [parent, pos];
     }
-    if (isTemplateNode(target)) return [target.templateContent, target.templateContent.children.length];
+    if (isTemplateNode(target))
+      return [target.templateContent, target.templateContent.children.length];
     return [target, target.children.length];
   }
 
@@ -2907,7 +3199,8 @@ export class TreeBuilder {
   _clear_stack_until(names) {
     while (this.open_elements.length) {
       const node = this.open_elements[this.open_elements.length - 1];
-      if ((node.namespace == null || node.namespace === "html") && names.has(node.name)) break;
+      if ((node.namespace == null || node.namespace === "html") && names.has(node.name))
+        break;
       this.open_elements.pop();
     }
   }
@@ -2928,7 +3221,8 @@ export class TreeBuilder {
     this._generate_implied_end_tags(name);
     while (this.open_elements.length) {
       const node = this.open_elements.pop();
-      if (node.name === name && (node.namespace == null || node.namespace === "html")) break;
+      if (node.name === name && (node.namespace == null || node.namespace === "html"))
+        break;
     }
     this._clear_active_formatting_up_to_marker();
     this.mode = InsertionMode.IN_ROW;
@@ -2951,10 +3245,14 @@ export class TreeBuilder {
 
   _end_tr_element() {
     this._clear_stack_until(TABLE_ROW_CONTEXT_CLEAR_UNTIL);
-    if (this.open_elements.length && this.open_elements[this.open_elements.length - 1].name === "tr") {
+    if (
+      this.open_elements.length &&
+      this.open_elements[this.open_elements.length - 1].name === "tr"
+    ) {
       this.open_elements.pop();
     }
-    if (this.template_modes.length) this.mode = this.template_modes[this.template_modes.length - 1];
+    if (this.template_modes.length)
+      this.mode = this.template_modes[this.template_modes.length - 1];
     else this.mode = InsertionMode.IN_TABLE_BODY;
   }
 
@@ -3008,7 +3306,11 @@ export class TreeBuilder {
     for (let idx = this.open_elements.length - 1; idx >= 0; idx -= 1) {
       const node = this.open_elements[idx];
       if (names.has(node.name)) return true;
-      if ((node.namespace == null || node.namespace === "html") && terminators.has(node.name)) return false;
+      if (
+        (node.namespace == null || node.namespace === "html") &&
+        terminators.has(node.name)
+      )
+        return false;
     }
     return false;
   }
@@ -3081,10 +3383,16 @@ export class TreeBuilder {
       let name = name0;
       let lowerName = lowerAscii(name);
 
-      if (namespace === "math" && Object.prototype.hasOwnProperty.call(MATHML_ATTRIBUTE_ADJUSTMENTS, lowerName)) {
+      if (
+        namespace === "math" &&
+        Object.prototype.hasOwnProperty.call(MATHML_ATTRIBUTE_ADJUSTMENTS, lowerName)
+      ) {
         name = MATHML_ATTRIBUTE_ADJUSTMENTS[lowerName];
         lowerName = lowerAscii(name);
-      } else if (namespace === "svg" && Object.prototype.hasOwnProperty.call(SVG_ATTRIBUTE_ADJUSTMENTS, lowerName)) {
+      } else if (
+        namespace === "svg" &&
+        Object.prototype.hasOwnProperty.call(SVG_ATTRIBUTE_ADJUSTMENTS, lowerName)
+      ) {
         name = SVG_ATTRIBUTE_ADJUSTMENTS[lowerName];
         lowerName = lowerAscii(name);
       }
@@ -3123,7 +3431,9 @@ export class TreeBuilder {
 
   _is_mathml_text_integration_point(node) {
     if (node.namespace !== "math") return false;
-    return MATHML_TEXT_INTEGRATION_POINT_SET.has(integrationPointKey(node.namespace, node.name));
+    return MATHML_TEXT_INTEGRATION_POINT_SET.has(
+      integrationPointKey(node.namespace, node.name)
+    );
   }
 
   _should_use_foreign_content(token) {
@@ -3157,7 +3467,8 @@ export class TreeBuilder {
     const attrs = tag.attrs || {};
     for (const name of Object.keys(attrs)) {
       const lowerName = lowerAscii(name);
-      if (lowerName === "color" || lowerName === "face" || lowerName === "size") return true;
+      if (lowerName === "color" || lowerName === "face" || lowerName === "size")
+        return true;
     }
     return false;
   }
@@ -3208,7 +3519,10 @@ export class TreeBuilder {
 
     const nameLower = lowerAscii(token.name);
     if (token.kind === Tag.START) {
-      if (FOREIGN_BREAKOUT_ELEMENTS.has(nameLower) || (nameLower === "font" && this._foreign_breakout_font(token))) {
+      if (
+        FOREIGN_BREAKOUT_ELEMENTS.has(nameLower) ||
+        (nameLower === "font" && this._foreign_breakout_font(token))
+      ) {
         this._parse_error("unexpected-html-element-in-foreign-content");
         this._pop_until_html_or_integration_point();
         this._reset_insertion_mode();
