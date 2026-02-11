@@ -23,12 +23,12 @@ This repo is ESM (`"type": "module"` in `package.json`).
 Create `example.mjs`:
 
 ```js
-import { JustHTML, stream } from "./src/index.js";
+import { JustHTML, stream } from "./src/index.ts";
 
 const doc = new JustHTML("<p class='intro'>Hello <b>world</b></p>");
 
 console.log(doc.toText()); // "Hello world"
-console.log(doc.query("p.intro")[0].to_html()); // pretty-printed HTML for the matching node
+console.log(doc.querySelector("p.intro")?.toHTML()); // pretty-printed HTML for the matching node
 
 for (const [event, data] of stream("<div>Hi</div>")) {
   console.log(event, data);
@@ -51,11 +51,11 @@ Create `example.html`:
 <!doctype html>
 <meta charset="utf-8" />
 <script type="module">
-  import { JustHTML } from "./src/index.js";
+  import { JustHTML } from "./src/index.ts";
 
   const doc = new JustHTML("<p>Hello <b>browser</b></p>");
   console.log(doc.toText()); // "Hello browser"
-  console.log(doc.query("b")[0].to_html({ pretty: false })); // "<b>browser</b>"
+  console.log(doc.querySelector("b")?.toHTML({ pretty: false })); // "<b>browser</b>"
 </script>
 ```
 
@@ -88,7 +88,7 @@ Open:
 ### `new JustHTML(input, options?)`
 
 ```js
-import { JustHTML } from "./src/index.js";
+import { JustHTML } from "./src/index.ts";
 
 const doc = new JustHTML("<p>Hello</p>");
 console.log(doc.root.name); // "#document"
@@ -99,42 +99,43 @@ Input can be:
 - `string`
 - `Uint8Array` / `ArrayBuffer` (bytes are decoded using HTML encoding sniffing; `options.encoding` can override transport encoding)
 
-Useful options (see `src/justhtml.js`):
+Useful options (see `src/justhtml.ts`):
 
 - `strict: boolean` – throws `StrictModeError` on the first collected parse error
 - `collectErrors: boolean` – populate `doc.errors`
-- `encoding: string | null` – transport override for byte input
-- `fragmentContext: FragmentContext | null` – fragment parsing context
+- `encoding: string | undefined` – transport override for byte input
+- `fragmentContext: FragmentContext | undefined` – fragment parsing context
 - `iframeSrcdoc: boolean` – test directive support
-- `tokenizerOpts: object | null` – advanced options (primarily for tests/debugging)
+- `tokenizerOpts: TokenizerOpts | undefined` – advanced options (primarily for tests/debugging)
 
 ### Nodes
 
-Nodes are simple plain objects with a small DOM-like API:
+Nodes are mutable `Node` instances with a small DOM-like API:
 
-- Properties: `name`, `attrs`, `children`, `parent`, `data`, `namespace`
+- Properties: `name`, `attrs`, `children`, `childNodes`, `parentNode`, `data`, `namespace`
 - Template support: `templateContent` for `<template>` in the HTML namespace
 - Methods:
-  - `node.query(selector)`
+  - `node.querySelector(selector)`
+  - `node.querySelectorAll(selector)`
   - `node.toText({ separator, strip })`
-  - `node.toHTML({ indent, indentSize, pretty })` / `node.to_html(...)`
-  - `node.toMarkdown()` / `node.to_markdown()`
+  - `node.toHTML({ indent, indentSize, pretty })` / `node.toHTML(...)`
+  - `toMarkdown(node)` (standalone helper)
 
 ### CSS selectors
 
 ```js
-import { JustHTML } from "./src/index.js";
+import { JustHTML } from "./src/index.ts";
 
 const doc = new JustHTML("<ul><li>One</li><li>Two</li></ul>");
-console.log(doc.query("li:first-child")[0].toText()); // "One"
+console.log(doc.querySelector("li:first-child")?.toText()); // "One"
 ```
 
 Standalone helpers:
 
 ```js
-import { query, matches } from "./src/index.js";
+import { matches, querySelectorAll } from "./src/index.ts";
 
-const nodes = query(doc.root, "li");
+const nodes = Array.from(querySelectorAll(doc.root, "li"));
 console.log(matches(nodes[0], "li:first-child"));
 ```
 
@@ -143,7 +144,7 @@ console.log(matches(nodes[0], "li:first-child"));
 `stream(html)` yields a simplified event stream from the tokenizer:
 
 ```js
-import { stream } from "./src/index.js";
+import { stream } from "./src/index.ts";
 
 for (const [event, data] of stream("<div>Hello</div>")) {
   console.log(event, data);
@@ -163,7 +164,7 @@ Events:
 This repository was developed as a test-driven port of `justhtml`:
 
 - Ported the architecture module-by-module (`encoding`, `tokenizer`, `treebuilder`, serialization helpers)
-- Added dependency-free Node.js runners for the upstream html5lib fixtures (`scripts/run-*-tests.js`)
+- Added dependency-free Node.js test runners for the upstream html5lib fixtures (`tests/html5lib-*.test.ts`)
 - Used the official `html5lib-tests` data as the main correctness target, with GitHub Actions running the suite on every push/PR (`.github/workflows/test.yml`)
 - Added a browser playground (`playground.html`) that imports the raw ES modules directly from `./src/`
 
@@ -176,28 +177,24 @@ Check out fixtures:
 ```bash
 git clone https://github.com/html5lib/html5lib-tests tests/html5lib-tests
 ```
+
 You can run the tests with [Just](https://github.com/casey/just):
 
 ```bash
 just
 ```
+
 Or manually like this:
 
 ```bash
-node scripts/smoke.js
-node scripts/run-selector-tests.js
-node scripts/run-stream-tests.js
-node scripts/run-markdown-tests.js
-node scripts/run-encoding-tests.js
-node scripts/run-tokenizer-tests.js
-node scripts/run-tree-construction-tests.js
-node scripts/run-serializer-tests.js
+node --experimental-strip-types --test tests/smoke.test.ts tests/selector.test.ts tests/stream.test.ts tests/markdown.test.ts
+node --experimental-strip-types --test tests/html5lib-encoding.test.ts tests/html5lib-tokenizer.test.ts tests/html5lib-tree-construction.test.ts tests/html5lib-serializer.test.ts
 ```
 
 Or point at an existing checkout:
 
 ```bash
-HTML5LIB_TESTS_DIR=/path/to/html5lib-tests node scripts/run-tokenizer-tests.js
+HTML5LIB_TESTS_DIR=/path/to/html5lib-tests node --experimental-strip-types --test tests/html5lib-tokenizer.test.ts
 ```
 
 ## Attribution / Acknowledgements
@@ -206,4 +203,3 @@ HTML5LIB_TESTS_DIR=/path/to/html5lib-tests node scripts/run-tokenizer-tests.js
 - **html5lib-tests** by the html5lib project: used as the primary conformance test suite.
 - **html5ever** by the Servo project: JustHTML started as a Python port of html5ever, and that architecture heavily influenced this port as well.
 - **Playground UI**: `playground.html` is adapted from the UI of `https://tools.simonwillison.net/justhtml`, but runs entirely in JavaScript (no Pyodide).
-

@@ -1,56 +1,52 @@
-import { Doctype } from "./tokens.js";
-import { FOREIGN_ATTRIBUTE_ADJUSTMENTS, VOID_ELEMENTS } from "./constants.js";
+/* eslint-disable unicorn/string-content */
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
+/* eslint-disable @typescript-eslint/no-base-to-string */
+import { FOREIGN_ATTRIBUTE_ADJUSTMENTS, VOID_ELEMENTS } from "./constants.ts";
+import type { Node } from "./node.ts";
+import { Doctype } from "./tokens.ts";
+import { isTemplateNode } from "./treebuilder.ts";
 
-// Mirrors justhtml.serialize.to_test_format.
-
-function qualifiedName(node) {
+function qualifiedName(node: Node): string {
   const ns = node.namespace ?? null;
-  if (ns && ns !== "html") return `${ns} ${node.name}`;
-  return node.name;
+  return ns && ns !== "html" ? `${ns} ${node.name}` : node.name;
 }
 
-function doctypeToTestFormat(node) {
+function doctypeToTestFormat(node: Node): string {
   const doctype = node.data;
   if (!(doctype instanceof Doctype)) return "| <!DOCTYPE >";
 
-  const name = doctype.name || "";
-  const publicId = doctype.publicId;
-  const systemId = doctype.systemId;
+  const name = doctype.name ?? "";
+  const { publicId, systemId } = doctype;
 
-  const parts = ["| <!DOCTYPE"];
-  if (name) parts.push(` ${name}`);
-  else parts.push(" ");
+  const parts = ["| <!DOCTYPE", name ? ` ${name}` : " "];
 
   if (publicId != null || systemId != null) {
-    const pub = publicId != null ? publicId : "";
-    const sys = systemId != null ? systemId : "";
-    parts.push(` "${pub}"`);
-    parts.push(` "${sys}"`);
+    parts.push(` "${publicId ?? ""}"`, ` "${systemId ?? ""}"`);
   }
 
   parts.push(">");
   return parts.join("");
 }
 
-function attrsToTestFormat(node, indent, { foreignAttributeAdjustments = null } = {}) {
-  const attrs = node.attrs || {};
-  const keys = Object.keys(attrs);
-  if (!keys.length) return [];
+function attrsToTestFormat(node: Node, indent: number): string[] {
+  const { attrs } = node;
+
+  if (!attrs.size) return [];
 
   const padding = " ".repeat(indent + 2);
   const namespace = node.namespace ?? null;
 
-  const displayAttrs = [];
-  for (const attrName of keys) {
-    const value = attrs[attrName] ?? "";
+  const displayAttrs: Array<[string, string]> = [];
+  for (const [attrName, rawValue] of attrs) {
+    const value = rawValue ?? "";
     let displayName = attrName;
     if (namespace && namespace !== "html") {
       const lowerName = attrName.toLowerCase();
-      if (foreignAttributeAdjustments && foreignAttributeAdjustments[lowerName]) {
+      if (FOREIGN_ATTRIBUTE_ADJUSTMENTS.has(lowerName)) {
         displayName = attrName.replaceAll(":", " ");
       }
     }
-    displayAttrs.push([displayName, String(value)]);
+    displayAttrs.push([displayName, value]);
   }
 
   // Match Python's default string sort (Unicode code point order), not locale collation.
@@ -58,83 +54,76 @@ function attrsToTestFormat(node, indent, { foreignAttributeAdjustments = null } 
   return displayAttrs.map(([name, value]) => `| ${padding}${name}="${value}"`);
 }
 
-function nodeToTestFormat(node, indent, options) {
-  if (node.name === "#comment") {
-    const comment = node.data || "";
-    return `| ${" ".repeat(indent)}<!-- ${comment} -->`;
-  }
+function nodeToTestFormat(node: Node, indent: number): string {
+  switch (node.name) {
+    case "#comment": {
+      const comment = node.data ?? "";
+      return `| ${" ".repeat(indent)}<!-- ${comment} -->`;
+    }
 
-  if (node.name === "!doctype") return doctypeToTestFormat(node);
+    case "!doctype":
+      return doctypeToTestFormat(node);
 
-  if (node.name === "#text") {
-    const text = node.data || "";
-    return `| ${" ".repeat(indent)}"${text}"`;
+    case "#text": {
+      const text = node.data ?? "";
+      return `| ${" ".repeat(indent)}"${text}"`;
+    }
   }
 
   const line = `| ${" ".repeat(indent)}<${qualifiedName(node)}>`;
-  const attributeLines = attrsToTestFormat(node, indent, options);
+  const attributeLines = attrsToTestFormat(node, indent);
 
-  const templateContent = node.templateContent ?? node.template_content ?? null;
-  if (
-    node.name === "template" &&
-    (node.namespace == null || node.namespace === "html") &&
-    templateContent
-  ) {
-    const sections = [line];
-    if (attributeLines.length) sections.push(...attributeLines);
-    sections.push(`| ${" ".repeat(indent + 2)}content`);
-    for (const child of templateContent.children || [])
-      sections.push(nodeToTestFormat(child, indent + 4, options));
-    return sections.join("\n");
-  }
-
-  const sections = [line];
-  if (attributeLines.length) sections.push(...attributeLines);
-  for (const child of node.children || [])
-    sections.push(nodeToTestFormat(child, indent + 2, options));
-  return sections.join("\n");
+  return isTemplateNode(node)
+    ? [
+        line,
+        ...attributeLines,
+        `| ${" ".repeat(indent + 2)}content`,
+        ...node.templateContent.childNodes.map(child =>
+          nodeToTestFormat(child, indent + 4)
+        ),
+      ].join("\n")
+    : [
+        line,
+        ...attributeLines,
+        ...node.childNodes.map(child => nodeToTestFormat(child, indent + 2)),
+      ].join("\n");
 }
 
-export function toTestFormat(node, options = {}) {
-  const { foreignAttributeAdjustments = FOREIGN_ATTRIBUTE_ADJUSTMENTS } = options;
-  const opts = { foreignAttributeAdjustments };
-
-  if (node.name === "#document" || node.name === "#document-fragment") {
-    return (node.children || [])
-      .map(child => nodeToTestFormat(child, 0, opts))
-      .join("\n");
-  }
-
-  return nodeToTestFormat(node, 0, opts);
+/**
+ * Serializes a node tree into html5lib-style test output format.
+ *
+ * This format is primarily used in conformance tests, not end-user output.
+ */
+export function toTestFormat(node: Node): string {
+  return node.name === "#document" || node.name === "#document-fragment"
+    ? node.childNodes.map(child => nodeToTestFormat(child, 0)).join("\n")
+    : nodeToTestFormat(node, 0);
 }
 
-// Mirrors justhtml.serialize.to_html (used for the public API, not html5lib-tests).
+// Mirrors justhtml.serialize.toHTML (used for the public API, not html5lib-tests).
 
-function escapeText(text) {
+function escapeText(text: string): string {
   if (!text) return "";
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-function chooseAttrQuote(value) {
+function chooseAttrQuote(value: string | undefined): '"' | "'" {
   if (value == null) return '"';
-  const s = String(value);
+  const s = value;
   if (s.includes('"') && !s.includes("'")) return "'";
   return '"';
 }
 
-function escapeAttrValue(value, quoteChar) {
+function escapeAttrValue(value: string | undefined, quoteChar: '"' | "'"): string {
   if (value == null) return "";
-  let s = String(value).replaceAll("&", "&amp;");
+  const s = value.replaceAll("&", "&amp;");
   if (quoteChar === '"') return s.replaceAll('"', "&quot;");
   return s.replaceAll("'", "&#39;");
 }
 
-function canUnquoteAttrValue(value) {
+function canUnquoteAttrValue(value: string | undefined): boolean {
   if (value == null) return false;
-  const s = String(value);
+  const s = value;
   for (const ch of s) {
     if (ch === ">") return false;
     if (ch === '"' || ch === "'" || ch === "=") return false;
@@ -144,98 +133,101 @@ function canUnquoteAttrValue(value) {
   return true;
 }
 
-function serializeStartTag(name, attrs) {
-  const parts = ["<", name];
-  if (attrs && Object.keys(attrs).length) {
-    for (const [key, value] of Object.entries(attrs)) {
-      if (value == null || value === "") {
-        parts.push(" ", key);
-        continue;
-      }
-
-      if (canUnquoteAttrValue(value)) {
-        const escaped = String(value).replaceAll("&", "&amp;");
-        parts.push(" ", key, "=", escaped);
-        continue;
-      }
-
-      const quote = chooseAttrQuote(value);
-      const escaped = escapeAttrValue(value, quote);
-      parts.push(" ", key, "=", quote, escaped, quote);
+function serializeStartTag(name: string, attrs: Map<string, string | null>): string {
+  const parts: string[] = ["<", name];
+  for (const [key, value] of attrs) {
+    if (value == null || value === "") {
+      parts.push(" ", key);
+      continue;
     }
+
+    if (canUnquoteAttrValue(value)) {
+      const escaped = value.replaceAll("&", "&amp;");
+      parts.push(" ", key, "=", escaped);
+      continue;
+    }
+
+    const quote = chooseAttrQuote(value);
+    const escaped = escapeAttrValue(value, quote);
+    parts.push(" ", key, "=", quote, escaped, quote);
   }
   parts.push(">");
   return parts.join("");
 }
 
-function serializeEndTag(name) {
+function serializeEndTag(name: string): string {
   return `</${name}>`;
 }
 
-function nodeToHTML(node, indent = 0, indentSize = 2, pretty = true) {
+/**
+ * Serializes a node tree to HTML.
+ */
+export function nodeToHTML(
+  node: Node,
+  indent = 0,
+  indentSize = 2,
+  pretty = true
+): string {
   const prefix = pretty ? " ".repeat(indent * indentSize) : "";
   const newline = pretty ? "\n" : "";
-  const name = node.name;
+  const { attrs, name, data } = node;
 
-  if (name === "#text") {
-    let text = node.data;
-    if (pretty) {
-      text = text ? String(text).trim() : "";
-      if (!text) return "";
-      return `${prefix}${escapeText(text)}`;
+  switch (name) {
+    case "#text": {
+      let text = data as string;
+      if (pretty) {
+        text = text ? text.trim() : "";
+        if (!text) return "";
+        return `${prefix}${escapeText(text)}`;
+      }
+      return text ? escapeText(text) : "";
     }
-    return text ? escapeText(text) : "";
-  }
 
-  if (name === "#comment") return `${prefix}<!--${node.data || ""}-->`;
+    case "#comment":
+      return `${prefix}<!--${data}-->`;
 
-  if (name === "!doctype") return `${prefix}<!DOCTYPE html>`;
+    case "!doctype":
+      return `${prefix}<!DOCTYPE html>`;
 
-  if (name === "#document-fragment") {
-    const parts = [];
-    for (const child of node.children || []) {
-      const childHTML = nodeToHTML(child, indent, indentSize, pretty);
-      if (childHTML) parts.push(childHTML);
+    case "#document-fragment": {
+      const parts: string[] = node.childNodes
+        .map(child => nodeToHTML(child, indent, indentSize, pretty))
+        .filter(Boolean);
+      return pretty ? parts.join(newline) : parts.join("");
     }
-    return pretty ? parts.join(newline) : parts.join("");
+
+    case "#document": {
+      const parts: string[] = node.childNodes.map(child =>
+        nodeToHTML(child, indent, indentSize, pretty)
+      );
+      return pretty ? parts.join(newline) : parts.join("");
+    }
   }
 
-  if (name === "#document") {
-    const parts = [];
-    for (const child of node.children || [])
-      parts.push(nodeToHTML(child, indent, indentSize, pretty));
-    return pretty ? parts.join(newline) : parts.join("");
-  }
-
-  const attrs = node.attrs || {};
   const openTag = serializeStartTag(name, attrs);
-
   if (VOID_ELEMENTS.has(name)) return `${prefix}${openTag}`;
 
-  const templateContent = node.templateContent ?? node.template_content ?? null;
-  const children =
-    name === "template" &&
-    (node.namespace == null || node.namespace === "html") &&
-    templateContent
-      ? templateContent.children || []
-      : node.children || [];
+  const children: Node[] = isTemplateNode(node)
+    ? // eslint-disable-next-line unicorn/consistent-destructuring
+      node.templateContent.childNodes
+    : // eslint-disable-next-line unicorn/consistent-destructuring
+      node.childNodes;
 
-  if (!children.length) return `${prefix}${openTag}${serializeEndTag(name)}`;
+  if (!children.length) {
+    return `${prefix}${openTag}${serializeEndTag(name)}`;
+  }
 
   const allText = children.every(c => c.name === "#text");
   if (allText && pretty) {
     return `${prefix}${openTag}${escapeText(node.toText({ separator: "", strip: false }))}${serializeEndTag(name)}`;
   }
 
-  const parts = [`${prefix}${openTag}`];
-  for (const child of children) {
-    const childHTML = nodeToHTML(child, indent + 1, indentSize, pretty);
-    if (childHTML) parts.push(childHTML);
-  }
-  parts.push(`${prefix}${serializeEndTag(name)}`);
+  const parts: string[] = [
+    `${prefix}${openTag}`,
+    ...children
+      .map(child => nodeToHTML(child, indent + 1, indentSize, pretty))
+      .filter(Boolean),
+    `${prefix}${serializeEndTag(name)}`,
+  ];
   return pretty ? parts.join(newline) : parts.join("");
-}
-
-export function toHTML(node, { indent = 0, indentSize = 2, pretty = true } = {}) {
-  return nodeToHTML(node, indent, indentSize, pretty);
 }

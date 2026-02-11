@@ -1,49 +1,105 @@
-import { decodeEntitiesInText } from "./entities.js";
+import { decodeEntitiesInText } from "./entities.ts";
 import {
-  CharacterToken,
-  CommentToken,
   Doctype,
-  DoctypeToken,
-  EOFToken,
-  Tag,
+  TagKind,
+  type Token,
   TokenSinkResult,
-} from "./tokens.js";
+  createCommentToken,
+  createDocTypeToken,
+  createTagToken,
+  eofToken,
+} from "./tokens.ts";
+import type { TokenizerSink } from "./treebuilder.ts";
 
-function isWhitespace(c) {
+export const enum ErrorCode {
+  AbruptClosingOfEmptyComment,
+  AbruptDoctypePublicIdentifier,
+  AbruptDoctypeSystemIdentifier,
+  CdataInHtmlContent,
+  DuplicateAttribute,
+  EndTagWithAttributes,
+  EofBeforeTagName,
+  EofInCdata,
+  EofInComment,
+  EofInDoctype,
+  EofInDoctypeName,
+  EofInDoctypePublicIdentifier,
+  EofInDoctypeSystemIdentifier,
+  EofInTag,
+  ExpectedDoctypeNameButGotRightBracket,
+  IncorrectlyClosedComment,
+  IncorrectlyOpenedComment,
+  InvalidFirstCharacterOfTagName,
+  MissingAttributeValue,
+  MissingDoctypePublicIdentifier,
+  MissingDoctypeSystemIdentifier,
+  MissingEndTagName,
+  MissingQuoteBeforeDoctypePublicIdentifier,
+  MissingQuoteBeforeDoctypeSystemIdentifier,
+  MissingWhitespaceAfterDoctypeName,
+  MissingWhitespaceAfterDoctypePublicIdentifier,
+  MissingWhitespaceBeforeDoctypeName,
+  MissingWhitespaceBeforeDoctypePublicIdentifier,
+  MissingWhitespaceBetweenAttributes,
+  MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers,
+  UnexpectedCharacterAfterDoctypePublicIdentifier,
+  UnexpectedCharacterAfterDoctypePublicKeyword,
+  UnexpectedCharacterAfterDoctypeSystemIdentifier,
+  UnexpectedCharacterAfterDoctypeSystemKeyword,
+  UnexpectedCharacterAfterSolidusInTag,
+  UnexpectedEqualsSignBeforeAttributeName,
+  UnexpectedNullCharacter,
+  UnexpectedQuestionMarkInsteadOfTagName,
+}
+
+export interface TokenizerOpts {
+  readonly initialState?: State;
+  readonly initialRawTextTag?: string;
+  readonly discardBom?: boolean;
+  readonly xmlCoercion?: boolean;
+}
+
+export interface TokenizerError {
+  readonly code: ErrorCode;
+  readonly offset: number;
+}
+
+function isWhitespace(c: string | null | undefined): boolean {
   return c === "\t" || c === "\n" || c === "\f" || c === " " || c === "\r";
 }
 
-function isAsciiAlpha(c) {
+function isAsciiAlpha(c: string): boolean {
   const code = c.charCodeAt(0);
   return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
 }
 
-function asciiLower(c) {
+function asciiLower(c: string): string {
   const code = c.charCodeAt(0);
-  if (code >= 0x41 && code <= 0x5a) return String.fromCharCode(code + 0x20);
-  return c;
+  return code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : c;
 }
 
-function coerceTextForXML(text) {
+const replacement = "\uFFFD";
+
+function coerceTextForXML(text: string): string {
   if (!text) return text;
 
   let changed = false;
   let out = "";
   for (const ch of text) {
-    const cp = ch.codePointAt(0);
+    const cp = ch.codePointAt(0)!;
     if (cp === 0x0c) {
       out += " ";
       changed = true;
       continue;
     }
     if (cp >= 0xfdd0 && cp <= 0xfdef) {
-      out += "\ufffd";
+      out += replacement;
       changed = true;
       continue;
     }
     const low16 = cp & 0xffff;
     if (low16 === 0xfffe || low16 === 0xffff) {
-      out += "\ufffd";
+      out += replacement;
       changed = true;
       continue;
     }
@@ -53,14 +109,13 @@ function coerceTextForXML(text) {
   return changed ? out : text;
 }
 
-function coerceCommentForXML(text) {
+function coerceCommentForXML(text: string): string {
   if (!text) return text;
-  if (!text.includes("--")) return text;
-  return text.replaceAll("--", "- -");
+  return !text.includes("--") ? text : text.replaceAll("--", "- -");
 }
 
 const RCDATA_ELEMENTS = new Set(["title", "textarea"]);
-const RAWTEXT_SWITCH_TAGS = new Set([
+const RAW_TEXT_SWITCH_TAGS = new Set([
   "script",
   "style",
   "xmp",
@@ -71,497 +126,483 @@ const RAWTEXT_SWITCH_TAGS = new Set([
   "title",
 ]);
 
-export class TokenizerOpts {
-  constructor({
-    initialState = null,
-    initialRawtextTag = null,
-    discardBom = true,
-    xmlCoercion = false,
-  } = {}) {
-    this.initialState = initialState;
-    this.initialRawtextTag = initialRawtextTag;
-    this.discardBom = Boolean(discardBom);
-    this.xmlCoercion = Boolean(xmlCoercion);
-  }
+export { State as TokenizerState };
+
+// https://github.com/rolldown/rolldown/issues/4342
+const enum State {
+  Data,
+  TagOpen,
+  EndTagOpen,
+  TagName,
+  BeforeAttributeName,
+  AttributeName,
+  AfterAttributeName,
+  BeforeAttributeValue,
+  AttributeValueDouble,
+  AttributeValueSingle,
+  AttributeValueUnquoted,
+  AfterAttributeValueQuoted,
+  SelfClosingStartTag,
+  MarkupDeclarationOpen,
+  CommentStart,
+  CommentStartDash,
+  Comment,
+  CommentEndDash,
+  CommentEnd,
+  CommentEndBang,
+  BogusComment,
+  Doctype,
+  BeforeDoctypeName,
+  DoctypeName,
+  AfterDoctypeName,
+  BogusDoctype,
+  AfterDoctypePublicKeyword,
+  AfterDoctypeSystemKeyword,
+  BeforeDoctypePublicIdentifier,
+  DoctypePublicIdentifierDoubleQuoted,
+  DoctypePublicIdentifierSingleQuoted,
+  AfterDoctypePublicIdentifier,
+  BetweenDoctypePublicAndSystemIdentifiers,
+  BeforeDoctypeSystemIdentifier,
+  DoctypeSystemIdentifierDoubleQuoted,
+  DoctypeSystemIdentifierSingleQuoted,
+  AfterDoctypeSystemIdentifier,
+  CDATASection,
+  CDATASectionBracket,
+  CDATASectionEnd,
+  RCDATA,
+  RCDATALessThanSign,
+  RCDATAEndTagOpen,
+  RCDATAEndTagName,
+  RawText,
+  RawTextLessThanSign,
+  RawTextEndTagOpen,
+  RawTextEndTagName,
+  PlainText,
+  ScriptDataEscaped,
+  ScriptDataEscapedDash,
+  ScriptDataEscapedDashDash,
+  ScriptDataEscapedLessThanSign,
+  ScriptDataEscapedEndTagOpen,
+  ScriptDataEscapedEndTagName,
+  ScriptDataDoubleEscapeStart,
+  ScriptDataDoubleEscaped,
+  ScriptDataDoubleEscapedDash,
+  ScriptDataDoubleEscapedDashDash,
+  ScriptDataDoubleEscapedLessThanSign,
+  ScriptDataDoubleEscapeEnd,
 }
 
+export type Tokenizer = ReturnType<typeof createTokenizer>;
+
 // Minimal HTML5 tokenizer, ported incrementally from ~/dev/justhtml.
-export class Tokenizer {
-  // State constants (match Python justhtml for easier porting)
-  static DATA = 0;
-  static TAG_OPEN = 1;
-  static END_TAG_OPEN = 2;
-  static TAG_NAME = 3;
-  static BEFORE_ATTRIBUTE_NAME = 4;
-  static ATTRIBUTE_NAME = 5;
-  static AFTER_ATTRIBUTE_NAME = 6;
-  static BEFORE_ATTRIBUTE_VALUE = 7;
-  static ATTRIBUTE_VALUE_DOUBLE = 8;
-  static ATTRIBUTE_VALUE_SINGLE = 9;
-  static ATTRIBUTE_VALUE_UNQUOTED = 10;
-  static AFTER_ATTRIBUTE_VALUE_QUOTED = 11;
-  static SELF_CLOSING_START_TAG = 12;
-  static MARKUP_DECLARATION_OPEN = 13;
-  static COMMENT_START = 14;
-  static COMMENT_START_DASH = 15;
-  static COMMENT = 16;
-  static COMMENT_END_DASH = 17;
-  static COMMENT_END = 18;
-  static COMMENT_END_BANG = 19;
-  static BOGUS_COMMENT = 20;
-  static DOCTYPE = 21;
-  static BEFORE_DOCTYPE_NAME = 22;
-  static DOCTYPE_NAME = 23;
-  static AFTER_DOCTYPE_NAME = 24;
-  static BOGUS_DOCTYPE = 25;
-  static AFTER_DOCTYPE_PUBLIC_KEYWORD = 26;
-  static AFTER_DOCTYPE_SYSTEM_KEYWORD = 27;
-  static BEFORE_DOCTYPE_PUBLIC_IDENTIFIER = 28;
-  static DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED = 29;
-  static DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED = 30;
-  static AFTER_DOCTYPE_PUBLIC_IDENTIFIER = 31;
-  static BETWEEN_DOCTYPE_PUBLIC_AND_SYSTEM_IDENTIFIERS = 32;
-  static BEFORE_DOCTYPE_SYSTEM_IDENTIFIER = 33;
-  static DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED = 34;
-  static DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED = 35;
-  static AFTER_DOCTYPE_SYSTEM_IDENTIFIER = 36;
-  static CDATA_SECTION = 37;
-  static CDATA_SECTION_BRACKET = 38;
-  static CDATA_SECTION_END = 39;
-  static RCDATA = 40;
-  static RCDATA_LESS_THAN_SIGN = 41;
-  static RCDATA_END_TAG_OPEN = 42;
-  static RCDATA_END_TAG_NAME = 43;
-  static RAWTEXT = 44;
-  static RAWTEXT_LESS_THAN_SIGN = 45;
-  static RAWTEXT_END_TAG_OPEN = 46;
-  static RAWTEXT_END_TAG_NAME = 47;
-  static PLAINTEXT = 48;
-  static SCRIPT_DATA_ESCAPED = 49;
-  static SCRIPT_DATA_ESCAPED_DASH = 50;
-  static SCRIPT_DATA_ESCAPED_DASH_DASH = 51;
-  static SCRIPT_DATA_ESCAPED_LESS_THAN_SIGN = 52;
-  static SCRIPT_DATA_ESCAPED_END_TAG_OPEN = 53;
-  static SCRIPT_DATA_ESCAPED_END_TAG_NAME = 54;
-  static SCRIPT_DATA_DOUBLE_ESCAPE_START = 55;
-  static SCRIPT_DATA_DOUBLE_ESCAPED = 56;
-  static SCRIPT_DATA_DOUBLE_ESCAPED_DASH = 57;
-  static SCRIPT_DATA_DOUBLE_ESCAPED_DASH_DASH = 58;
-  static SCRIPT_DATA_DOUBLE_ESCAPED_LESS_THAN_SIGN = 59;
-  static SCRIPT_DATA_DOUBLE_ESCAPE_END = 60;
+export function createTokenizer(sink: TokenizerSink, opts: TokenizerOpts = {}) {
+  let errors: TokenizerError[] = [];
+  let state = State.Data;
+  let buffer = "";
+  let length = 0;
+  let pos = 0;
+  let reconsume = false;
+  let currentChar: string | undefined;
+  let ignoreLF = false;
+  let textBuffer: string[] = [];
+  let currentTagName: string[] = [];
+  const currentTagAttrs = new Map<string, string>();
+  let currentAttrName: string[] = [];
+  let currentAttrValue: string[] = [];
+  let currentAttrValueHasAmp = false;
+  let currentTagSelfClosing = false;
+  let currentTagKind = TagKind.Start;
+  let currentComment: string[] = [];
+  let currentDoctypeName: string[] = [];
+  let currentDoctypePublic: string[] | undefined;
+  let currentDoctypeSystem: string[] | undefined;
+  let currentDoctypeForceQuirks = false;
+  let lastStartTagName: string | undefined;
+  let rawTextTagName: string | undefined;
+  let tempBuffer: string[] = [];
+  let originalTagName: string[] = [];
+  let tagToken = createTagToken(TagKind.Start, "", new Map(), false);
 
-  constructor(sink, opts = new TokenizerOpts(), { collectErrors = false } = {}) {
-    this.sink = sink;
-    this.opts = opts;
-    this.collectErrors = Boolean(collectErrors);
+  function initialize(input: string): void {
+    if (opts.discardBom && input && input[0] === "\uFEFF") {
+      input = input.slice(1);
+    }
 
-    this.errors = [];
+    buffer = input;
+    length = input.length;
+    pos = 0;
+    reconsume = false;
+    currentChar = undefined;
+    ignoreLF = false;
+    errors = [];
 
-    this.state = Tokenizer.DATA;
-    this.buffer = "";
-    this.length = 0;
-    this.pos = 0;
-    this.reconsume = false;
-    this.currentChar = null;
-    this.ignoreLF = false;
+    textBuffer = [];
+    currentTagName = [];
+    currentTagAttrs.clear();
+    currentAttrName = [];
+    currentAttrValue = [];
+    currentAttrValueHasAmp = false;
+    currentTagSelfClosing = false;
+    currentTagKind = TagKind.Start;
+    currentComment = [];
 
-    this.textBuffer = [];
-    this.currentTagName = [];
-    this.currentTagAttrs = {};
-    this.currentAttrName = [];
-    this.currentAttrValue = [];
-    this.currentAttrValueHasAmp = false;
-    this.currentTagSelfClosing = false;
-    this.currentTagKind = Tag.START;
-    this.currentComment = [];
+    currentDoctypeName = [];
+    currentDoctypePublic = undefined;
+    currentDoctypeSystem = undefined;
+    currentDoctypeForceQuirks = false;
 
-    this.currentDoctypeName = [];
-    this.currentDoctypePublic = null;
-    this.currentDoctypeSystem = null;
-    this.currentDoctypeForceQuirks = false;
+    rawTextTagName = opts.initialRawTextTag;
+    tempBuffer = [];
+    originalTagName = [];
+    lastStartTagName = undefined;
 
-    this.lastStartTagName = null;
-    this.rawtextTagName = null;
-    this.tempBuffer = [];
-    this.originalTagName = [];
-
-    this._tagToken = new Tag(Tag.START, "", {}, false);
-    this._commentToken = new CommentToken("");
+    state = typeof opts.initialState === "number" ? opts.initialState : State.Data;
   }
 
-  initialize(html) {
-    let input = html || "";
-    if (this.opts.discardBom && input && input[0] === "\ufeff") input = input.slice(1);
-
-    this.buffer = input;
-    this.length = input.length;
-    this.pos = 0;
-    this.reconsume = false;
-    this.currentChar = null;
-    this.ignoreLF = false;
-    this.errors = [];
-
-    this.textBuffer.length = 0;
-    this.currentTagName.length = 0;
-    this.currentTagAttrs = {};
-    this.currentAttrName.length = 0;
-    this.currentAttrValue.length = 0;
-    this.currentAttrValueHasAmp = false;
-    this.currentTagSelfClosing = false;
-    this.currentTagKind = Tag.START;
-    this.currentComment.length = 0;
-
-    this.currentDoctypeName.length = 0;
-    this.currentDoctypePublic = null;
-    this.currentDoctypeSystem = null;
-    this.currentDoctypeForceQuirks = false;
-
-    this.rawtextTagName = this.opts.initialRawtextTag;
-    this.tempBuffer.length = 0;
-    this.originalTagName.length = 0;
-    this.lastStartTagName = null;
-
-    if (typeof this.opts.initialState === "number") this.state = this.opts.initialState;
-    else this.state = Tokenizer.DATA;
-  }
-
-  run(html) {
-    this.initialize(html);
-    // eslint-disable-next-line no-constant-condition
+  function run(html: string): void {
+    initialize(html);
     while (true) {
-      if (this.step()) break;
+      if (step()) break;
     }
   }
 
-  step() {
-    switch (this.state) {
-      case Tokenizer.DATA:
-        return this._stateData();
-      case Tokenizer.TAG_OPEN:
-        return this._stateTagOpen();
-      case Tokenizer.END_TAG_OPEN:
-        return this._stateEndTagOpen();
-      case Tokenizer.TAG_NAME:
-        return this._stateTagName();
-      case Tokenizer.BEFORE_ATTRIBUTE_NAME:
-        return this._stateBeforeAttributeName();
-      case Tokenizer.ATTRIBUTE_NAME:
-        return this._stateAttributeName();
-      case Tokenizer.AFTER_ATTRIBUTE_NAME:
-        return this._stateAfterAttributeName();
-      case Tokenizer.BEFORE_ATTRIBUTE_VALUE:
-        return this._stateBeforeAttributeValue();
-      case Tokenizer.ATTRIBUTE_VALUE_DOUBLE:
-        return this._stateAttributeValueDouble();
-      case Tokenizer.ATTRIBUTE_VALUE_SINGLE:
-        return this._stateAttributeValueSingle();
-      case Tokenizer.ATTRIBUTE_VALUE_UNQUOTED:
-        return this._stateAttributeValueUnquoted();
-      case Tokenizer.AFTER_ATTRIBUTE_VALUE_QUOTED:
-        return this._stateAfterAttributeValueQuoted();
-      case Tokenizer.SELF_CLOSING_START_TAG:
-        return this._stateSelfClosingStartTag();
-      case Tokenizer.MARKUP_DECLARATION_OPEN:
-        return this._stateMarkupDeclarationOpen();
-      case Tokenizer.COMMENT_START:
-        return this._stateCommentStart();
-      case Tokenizer.COMMENT_START_DASH:
-        return this._stateCommentStartDash();
-      case Tokenizer.COMMENT:
-        return this._stateComment();
-      case Tokenizer.COMMENT_END_DASH:
-        return this._stateCommentEndDash();
-      case Tokenizer.COMMENT_END:
-        return this._stateCommentEnd();
-      case Tokenizer.COMMENT_END_BANG:
-        return this._stateCommentEndBang();
-      case Tokenizer.BOGUS_COMMENT:
-        return this._stateBogusComment();
-      case Tokenizer.DOCTYPE:
-        return this._stateDoctype();
-      case Tokenizer.BEFORE_DOCTYPE_NAME:
-        return this._stateBeforeDoctypeName();
-      case Tokenizer.DOCTYPE_NAME:
-        return this._stateDoctypeName();
-      case Tokenizer.AFTER_DOCTYPE_NAME:
-        return this._stateAfterDoctypeName();
-      case Tokenizer.BOGUS_DOCTYPE:
-        return this._stateBogusDoctype();
-      case Tokenizer.AFTER_DOCTYPE_PUBLIC_KEYWORD:
-        return this._stateAfterDoctypePublicKeyword();
-      case Tokenizer.AFTER_DOCTYPE_SYSTEM_KEYWORD:
-        return this._stateAfterDoctypeSystemKeyword();
-      case Tokenizer.BEFORE_DOCTYPE_PUBLIC_IDENTIFIER:
-        return this._stateBeforeDoctypePublicIdentifier();
-      case Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED:
-        return this._stateDoctypePublicIdentifierDoubleQuoted();
-      case Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED:
-        return this._stateDoctypePublicIdentifierSingleQuoted();
-      case Tokenizer.AFTER_DOCTYPE_PUBLIC_IDENTIFIER:
-        return this._stateAfterDoctypePublicIdentifier();
-      case Tokenizer.BETWEEN_DOCTYPE_PUBLIC_AND_SYSTEM_IDENTIFIERS:
-        return this._stateBetweenDoctypePublicAndSystemIdentifiers();
-      case Tokenizer.BEFORE_DOCTYPE_SYSTEM_IDENTIFIER:
-        return this._stateBeforeDoctypeSystemIdentifier();
-      case Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED:
-        return this._stateDoctypeSystemIdentifierDoubleQuoted();
-      case Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED:
-        return this._stateDoctypeSystemIdentifierSingleQuoted();
-      case Tokenizer.AFTER_DOCTYPE_SYSTEM_IDENTIFIER:
-        return this._stateAfterDoctypeSystemIdentifier();
-      case Tokenizer.CDATA_SECTION:
-        return this._stateCdataSection();
-      case Tokenizer.CDATA_SECTION_BRACKET:
-        return this._stateCdataSectionBracket();
-      case Tokenizer.CDATA_SECTION_END:
-        return this._stateCdataSectionEnd();
-      case Tokenizer.RCDATA:
-        return this._stateRcdata();
-      case Tokenizer.RCDATA_LESS_THAN_SIGN:
-        return this._stateRcdataLessThanSign();
-      case Tokenizer.RCDATA_END_TAG_OPEN:
-        return this._stateRcdataEndTagOpen();
-      case Tokenizer.RCDATA_END_TAG_NAME:
-        return this._stateRcdataEndTagName();
-      case Tokenizer.RAWTEXT:
-        return this._stateRawtext();
-      case Tokenizer.RAWTEXT_LESS_THAN_SIGN:
-        return this._stateRawtextLessThanSign();
-      case Tokenizer.RAWTEXT_END_TAG_OPEN:
-        return this._stateRawtextEndTagOpen();
-      case Tokenizer.RAWTEXT_END_TAG_NAME:
-        return this._stateRawtextEndTagName();
-      case Tokenizer.PLAINTEXT:
-        return this._statePlaintext();
-      case Tokenizer.SCRIPT_DATA_ESCAPED:
-        return this._stateScriptDataEscaped();
-      case Tokenizer.SCRIPT_DATA_ESCAPED_DASH:
-        return this._stateScriptDataEscapedDash();
-      case Tokenizer.SCRIPT_DATA_ESCAPED_DASH_DASH:
-        return this._stateScriptDataEscapedDashDash();
-      case Tokenizer.SCRIPT_DATA_ESCAPED_LESS_THAN_SIGN:
-        return this._stateScriptDataEscapedLessThanSign();
-      case Tokenizer.SCRIPT_DATA_ESCAPED_END_TAG_OPEN:
-        return this._stateScriptDataEscapedEndTagOpen();
-      case Tokenizer.SCRIPT_DATA_ESCAPED_END_TAG_NAME:
-        return this._stateScriptDataEscapedEndTagName();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPE_START:
-        return this._stateScriptDataDoubleEscapeStart();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED:
-        return this._stateScriptDataDoubleEscaped();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_DASH:
-        return this._stateScriptDataDoubleEscapedDash();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_DASH_DASH:
-        return this._stateScriptDataDoubleEscapedDashDash();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_LESS_THAN_SIGN:
-        return this._stateScriptDataDoubleEscapedLessThanSign();
-      case Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPE_END:
-        return this._stateScriptDataDoubleEscapeEnd();
+  function step(): boolean {
+    switch (state) {
+      case State.Data:
+        return stateData();
+      case State.TagOpen:
+        return stateTagOpen();
+      case State.EndTagOpen:
+        return stateEndTagOpen();
+      case State.TagName:
+        return stateTagName();
+      case State.BeforeAttributeName:
+        return stateBeforeAttributeName();
+      case State.AttributeName:
+        return stateAttributeName();
+      case State.AfterAttributeName:
+        return stateAfterAttributeName();
+      case State.BeforeAttributeValue:
+        return stateBeforeAttributeValue();
+      case State.AttributeValueDouble:
+        return stateAttributeValueDouble();
+      case State.AttributeValueSingle:
+        return stateAttributeValueSingle();
+      case State.AttributeValueUnquoted:
+        return stateAttributeValueUnquoted();
+      case State.AfterAttributeValueQuoted:
+        return stateAfterAttributeValueQuoted();
+      case State.SelfClosingStartTag:
+        return stateSelfClosingStartTag();
+      case State.MarkupDeclarationOpen:
+        return stateMarkupDeclarationOpen();
+      case State.CommentStart:
+        return stateCommentStart();
+      case State.CommentStartDash:
+        return stateCommentStartDash();
+      case State.Comment:
+        return stateComment();
+      case State.CommentEndDash:
+        return stateCommentEndDash();
+      case State.CommentEnd:
+        return stateCommentEnd();
+      case State.CommentEndBang:
+        return stateCommentEndBang();
+      case State.BogusComment:
+        return stateBogusComment();
+      case State.Doctype:
+        return stateDoctype();
+      case State.BeforeDoctypeName:
+        return stateBeforeDoctypeName();
+      case State.DoctypeName:
+        return stateDoctypeName();
+      case State.AfterDoctypeName:
+        return stateAfterDoctypeName();
+      case State.BogusDoctype:
+        return stateBogusDoctype();
+      case State.AfterDoctypePublicKeyword:
+        return stateAfterDoctypePublicKeyword();
+      case State.AfterDoctypeSystemKeyword:
+        return stateAfterDoctypeSystemKeyword();
+      case State.BeforeDoctypePublicIdentifier:
+        return stateBeforeDoctypePublicIdentifier();
+      case State.DoctypePublicIdentifierDoubleQuoted:
+        return stateDoctypePublicIdentifierDoubleQuoted();
+      case State.DoctypePublicIdentifierSingleQuoted:
+        return stateDoctypePublicIdentifierSingleQuoted();
+      case State.AfterDoctypePublicIdentifier:
+        return stateAfterDoctypePublicIdentifier();
+      case State.BetweenDoctypePublicAndSystemIdentifiers:
+        return stateBetweenDoctypePublicAndSystemIdentifiers();
+      case State.BeforeDoctypeSystemIdentifier:
+        return stateBeforeDoctypeSystemIdentifier();
+      case State.DoctypeSystemIdentifierDoubleQuoted:
+        return stateDoctypeSystemIdentifierDoubleQuoted();
+      case State.DoctypeSystemIdentifierSingleQuoted:
+        return stateDoctypeSystemIdentifierSingleQuoted();
+      case State.AfterDoctypeSystemIdentifier:
+        return stateAfterDoctypeSystemIdentifier();
+      case State.CDATASection:
+        return stateCdataSection();
+      case State.CDATASectionBracket:
+        return stateCdataSectionBracket();
+      case State.CDATASectionEnd:
+        return stateCdataSectionEnd();
+      case State.RCDATA:
+        return stateRcdata();
+      case State.RCDATALessThanSign:
+        return stateRcdataLessThanSign();
+      case State.RCDATAEndTagOpen:
+        return stateRcdataEndTagOpen();
+      case State.RCDATAEndTagName:
+        return stateRcdataEndTagName();
+      case State.RawText:
+        return stateRawText();
+      case State.RawTextLessThanSign:
+        return stateRawTextLessThanSign();
+      case State.RawTextEndTagOpen:
+        return stateRawTextEndTagOpen();
+      case State.RawTextEndTagName:
+        return stateRawTextEndTagName();
+      case State.PlainText:
+        return statePlaintext();
+      case State.ScriptDataEscaped:
+        return stateScriptDataEscaped();
+      case State.ScriptDataEscapedDash:
+        return stateScriptDataEscapedDash();
+      case State.ScriptDataEscapedDashDash:
+        return stateScriptDataEscapedDashDash();
+      case State.ScriptDataEscapedLessThanSign:
+        return stateScriptDataEscapedLessThanSign();
+      case State.ScriptDataEscapedEndTagOpen:
+        return stateScriptDataEscapedEndTagOpen();
+      case State.ScriptDataEscapedEndTagName:
+        return stateScriptDataEscapedEndTagName();
+      case State.ScriptDataDoubleEscapeStart:
+        return stateScriptDataDoubleEscapeStart();
+      case State.ScriptDataDoubleEscaped:
+        return stateScriptDataDoubleEscaped();
+      case State.ScriptDataDoubleEscapedDash:
+        return stateScriptDataDoubleEscapedDash();
+      case State.ScriptDataDoubleEscapedDashDash:
+        return stateScriptDataDoubleEscapedDashDash();
+      case State.ScriptDataDoubleEscapedLessThanSign:
+        return stateScriptDataDoubleEscapedLessThanSign();
+      case State.ScriptDataDoubleEscapeEnd:
+        return stateScriptDataDoubleEscapeEnd();
       default:
         // Not yet ported; fall back to DATA semantics to keep the runner usable.
-        this.state = Tokenizer.DATA;
+        state = State.Data;
         return false;
     }
   }
 
-  _getChar() {
-    if (this.reconsume) {
-      this.reconsume = false;
-      return this.currentChar;
+  function getChar(): string | null {
+    if (reconsume) {
+      reconsume = false;
+      return currentChar ?? null;
     }
 
     while (true) {
-      if (this.pos >= this.length) {
-        this.currentChar = null;
+      if (pos >= length) {
+        currentChar = undefined;
         return null;
       }
 
-      let c = this.buffer[this.pos];
-      this.pos += 1;
+      let c = buffer[pos]!;
+      pos += 1;
 
       if (c === "\r") {
-        this.ignoreLF = true;
+        ignoreLF = true;
         c = "\n";
-      } else if (c === "\n" && this.ignoreLF) {
-        this.ignoreLF = false;
+      } else if (c === "\n" && ignoreLF) {
+        ignoreLF = false;
         continue;
       } else {
-        this.ignoreLF = false;
+        ignoreLF = false;
       }
 
-      this.currentChar = c;
+      currentChar = c;
       return c;
     }
   }
 
-  _reconsumeCurrent() {
-    this.reconsume = true;
+  function reconsumeCurrent(): void {
+    reconsume = true;
   }
 
-  _peekChar(offset) {
-    const pos = this.pos + offset;
-    if (pos < 0 || pos >= this.length) return null;
-    return this.buffer[pos];
+  function peekChar(offset: number): string | undefined {
+    const p = pos + offset;
+    return p < 0 || p >= length ? undefined : buffer[p];
   }
 
-  _appendText(s) {
-    if (s) this.textBuffer.push(s);
+  function appendText(s: string): void {
+    if (s) {
+      textBuffer.push(s);
+    }
   }
 
-  _flushText() {
-    if (!this.textBuffer.length) return;
-    let data = this.textBuffer.join("");
-    this.textBuffer.length = 0;
+  function flushText(): void {
+    if (!textBuffer.length) return;
+    let data = textBuffer.join("");
+    textBuffer = [];
 
     // Per HTML5 spec (and Python port):
-    // - decode character references in DATA/RCDATA and similar (< RAWTEXT)
-    // - do not decode in RAWTEXT/PLAINTEXT/script states or CDATA
-    const state = this.state;
-    const inCDATA =
-      state >= Tokenizer.CDATA_SECTION && state <= Tokenizer.CDATA_SECTION_END;
-    if (!inCDATA && state < Tokenizer.RAWTEXT && state < Tokenizer.PLAINTEXT) {
-      if (data.includes("&")) data = decodeEntitiesInText(data);
+    // - decode character references in DATA/RCDATA and similar (< RAW_TEXT)
+    // - do not decode in RAW_TEXT/PLAINTEXT/script states or CDATA
+    const inCDATA = state >= State.CDATASection && state <= State.CDATASectionEnd;
+    if (
+      !inCDATA &&
+      state < State.RawText &&
+      state < State.PlainText &&
+      data.includes("&")
+    ) {
+      data = decodeEntitiesInText(data);
     }
 
-    if (this.opts.xmlCoercion) data = coerceTextForXML(data);
+    if (opts.xmlCoercion) data = coerceTextForXML(data);
 
-    this.sink.processCharacters(data);
+    sink.processCharacters(data);
   }
 
-  _emitToken(token) {
-    this.sink.processToken(token);
+  function emitToken(token: Token): void {
+    sink.processToken(token);
   }
 
-  _emitError(_code) {
-    // Tokenizer tests are currently token-only (errors ignored in our harness).
+  // eslint-disable-next-line unicorn/consistent-function-scoping
+  function emitError(code: ErrorCode): void {
+    // `pos` points to the next unread char after `getChar()`, so clamp to last-read offset.
+    errors.push({ code, offset: Math.max(0, pos - 1) });
   }
 
-  _startNewAttribute() {
-    this.currentAttrName.length = 0;
-    this.currentAttrValue.length = 0;
-    this.currentAttrValueHasAmp = false;
+  function startNewAttribute(): void {
+    currentAttrName = [];
+    currentAttrValue = [];
+    currentAttrValueHasAmp = false;
   }
 
-  _finishAttribute() {
-    if (!this.currentAttrName.length) return;
-    const name = this.currentAttrName.join("");
-    this.currentAttrName.length = 0;
+  function finishAttribute(): void {
+    if (!currentAttrName.length) return;
+    const name = currentAttrName.join("");
+    currentAttrName = [];
 
-    if (Object.prototype.hasOwnProperty.call(this.currentTagAttrs, name)) {
-      this._emitError("duplicate-attribute");
-      this.currentAttrValue.length = 0;
-      this.currentAttrValueHasAmp = false;
+    if (currentTagAttrs.has(name)) {
+      emitError(ErrorCode.DuplicateAttribute);
+      currentAttrValue = [];
+      currentAttrValueHasAmp = false;
       return;
     }
 
     let value = "";
-    if (this.currentAttrValue.length) value = this.currentAttrValue.join("");
-    this.currentAttrValue.length = 0;
+    if (currentAttrValue.length) {
+      value = currentAttrValue.join("");
+    }
+    currentAttrValue = [];
 
-    if (this.currentAttrValueHasAmp)
-      value = decodeEntitiesInText(value, { inAttribute: true });
-    this.currentAttrValueHasAmp = false;
+    if (currentAttrValueHasAmp) {
+      value = decodeEntitiesInText(value, /* inAttribute */ true);
+    }
+    currentAttrValueHasAmp = false;
 
-    this.currentTagAttrs[name] = value;
+    currentTagAttrs.set(name, value);
   }
 
-  _emitCurrentTag() {
-    const name = this.currentTagName.join("");
-    const attrs = this.currentTagAttrs;
+  function emitCurrentTag(): boolean {
+    const name = currentTagName.join("");
+    const attrs = currentTagAttrs;
 
-    const tag = this._tagToken;
-    tag.kind = this.currentTagKind;
-    tag.name = name;
-    tag.attrs = attrs;
-    tag.selfClosing = this.currentTagSelfClosing;
+    tagToken = createTagToken(
+      currentTagKind,
+      name,
+      new Map(attrs),
+      currentTagSelfClosing
+    );
 
-    let switchedToRawtext = false;
-    if (this.currentTagKind === Tag.START) {
-      this.lastStartTagName = name;
+    let switchedToRawText = false;
+    if (currentTagKind === TagKind.Start) {
+      lastStartTagName = name;
 
-      const needsRawtextCheck = RAWTEXT_SWITCH_TAGS.has(name) || name === "plaintext";
-      if (needsRawtextCheck) {
-        const stack = this.sink.openElements || this.sink.open_elements || [];
-        const currentNode = stack.length ? stack[stack.length - 1] : null;
-        const namespace = currentNode ? currentNode.namespace : null;
+      const needsRawTextCheck = RAW_TEXT_SWITCH_TAGS.has(name) || name === "plaintext";
+      if (needsRawTextCheck) {
+        const stack = sink.openElements ?? [];
+        const currentNode = stack.at(-1);
+        const namespace = currentNode?.namespace;
 
-        if (namespace == null || namespace === "html") {
+        if (currentNode === undefined || namespace === "html") {
           if (RCDATA_ELEMENTS.has(name)) {
-            this.state = Tokenizer.RCDATA;
-            this.rawtextTagName = name;
-            switchedToRawtext = true;
-          } else if (RAWTEXT_SWITCH_TAGS.has(name)) {
-            this.state = Tokenizer.RAWTEXT;
-            this.rawtextTagName = name;
-            switchedToRawtext = true;
+            state = State.RCDATA;
+            rawTextTagName = name;
+            switchedToRawText = true;
+          } else if (RAW_TEXT_SWITCH_TAGS.has(name)) {
+            state = State.RawText;
+            rawTextTagName = name;
+            switchedToRawText = true;
           } else {
-            this.state = Tokenizer.PLAINTEXT;
-            switchedToRawtext = true;
+            state = State.PlainText;
+            switchedToRawText = true;
           }
         }
       }
     }
 
-    const result = this.sink.processToken(tag);
+    const result = sink.processToken(tagToken);
     if (result === TokenSinkResult.Plaintext) {
-      this.state = Tokenizer.PLAINTEXT;
-      switchedToRawtext = true;
+      state = State.PlainText;
+      switchedToRawText = true;
     }
 
-    this.currentTagName.length = 0;
-    this.currentTagAttrs = {};
-    this.currentAttrName.length = 0;
-    this.currentAttrValue.length = 0;
-    this.currentAttrValueHasAmp = false;
-    this.currentTagSelfClosing = false;
-    this.currentTagKind = Tag.START;
-    return switchedToRawtext;
+    currentTagName = [];
+    currentTagAttrs.clear();
+    currentAttrName = [];
+    currentAttrValue = [];
+    currentAttrValueHasAmp = false;
+    currentTagSelfClosing = false;
+    currentTagKind = TagKind.Start;
+    return switchedToRawText;
   }
 
-  _emitComment() {
-    let data = this.currentComment.join("");
-    this.currentComment.length = 0;
-    if (this.opts.xmlCoercion) data = coerceCommentForXML(data);
-    this._commentToken.data = data;
-    this._emitToken(this._commentToken);
+  function emitComment(): void {
+    let data = currentComment.join("");
+    currentComment = [];
+    if (opts.xmlCoercion) data = coerceCommentForXML(data);
+    emitToken(createCommentToken(data));
   }
 
-  _emitDoctype() {
-    const name = this.currentDoctypeName.length ? this.currentDoctypeName.join("") : null;
-    const publicId =
-      this.currentDoctypePublic != null ? this.currentDoctypePublic.join("") : null;
-    const systemId =
-      this.currentDoctypeSystem != null ? this.currentDoctypeSystem.join("") : null;
+  function emitDoctype(): void {
+    const name = currentDoctypeName.length ? currentDoctypeName.join("") : undefined;
+    const publicId = currentDoctypePublic?.join("");
+    const systemId = currentDoctypeSystem?.join("");
 
     const doctype = new Doctype({
       name,
       publicId,
       systemId,
-      forceQuirks: this.currentDoctypeForceQuirks,
+      forceQuirks: currentDoctypeForceQuirks,
     });
 
-    this.currentDoctypeName.length = 0;
-    this.currentDoctypePublic = null;
-    this.currentDoctypeSystem = null;
-    this.currentDoctypeForceQuirks = false;
+    currentDoctypeName = [];
+    currentDoctypePublic = undefined;
+    currentDoctypeSystem = undefined;
+    currentDoctypeForceQuirks = false;
 
-    this._emitToken(new DoctypeToken(doctype));
+    emitToken(createDocTypeToken(doctype));
   }
 
-  _consumeIf(literal) {
-    const end = this.pos + literal.length;
-    if (end > this.length) return false;
-    if (this.buffer.slice(this.pos, end) !== literal) return false;
-    this.pos = end;
+  function consumeIf(literal: string): boolean {
+    const end = pos + literal.length;
+    if (end > length) return false;
+    if (buffer.slice(pos, end) !== literal) return false;
+    pos = end;
     return true;
   }
 
-  _consumeCaseInsensitive(literal) {
-    const end = this.pos + literal.length;
-    if (end > this.length) return false;
-    const segment = this.buffer.slice(this.pos, end);
+  function consumeCaseInsensitive(literal: string): boolean {
+    const end = pos + literal.length;
+    if (end > length) return false;
+    const segment = buffer.slice(pos, end);
     if (segment.toLowerCase() !== literal.toLowerCase()) return false;
-    this.pos = end;
+    pos = end;
     return true;
   }
 
@@ -569,1673 +610,1776 @@ export class Tokenizer {
   // State handlers
   // -----------------
 
-  _stateData() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateData(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "<") {
-      this._flushText();
-      this.state = Tokenizer.TAG_OPEN;
-      return false;
+      case "<":
+        flushText();
+        state = State.TagOpen;
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-
-    this._appendText(c);
-    return false;
   }
 
-  _statePlaintext() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function statePlaintext(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText(replacement);
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      return false;
-    }
-    this._appendText(c);
-    return false;
   }
 
-  _stateTagOpen() {
-    const c = this._getChar();
+  function stateTagOpen(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        appendText("<");
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c == null) {
-      this._appendText("<");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+      case "!":
+        state = State.MarkupDeclarationOpen;
+        return false;
+
+      case "/":
+        state = State.EndTagOpen;
+        return false;
+
+      case "?":
+        emitError(ErrorCode.UnexpectedQuestionMarkInsteadOfTagName);
+        currentComment = [];
+        reconsumeCurrent();
+        state = State.BogusComment;
+        return false;
+      default:
+        if (isAsciiAlpha(c)) {
+          currentTagKind = TagKind.Start;
+          currentTagName = [asciiLower(c)];
+          currentTagAttrs.clear();
+          currentTagSelfClosing = false;
+          state = State.TagName;
+          return false;
+        }
+
+        emitError(ErrorCode.InvalidFirstCharacterOfTagName);
+        appendText("<");
+        reconsumeCurrent();
+        state = State.Data;
+        return false;
     }
-
-    if (c === "!") {
-      this.state = Tokenizer.MARKUP_DECLARATION_OPEN;
-      return false;
-    }
-
-    if (c === "/") {
-      this.state = Tokenizer.END_TAG_OPEN;
-      return false;
-    }
-
-    if (c === "?") {
-      this._emitError("unexpected-question-mark-instead-of-tag-name");
-      this.currentComment.length = 0;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_COMMENT;
-      return false;
-    }
-
-    if (isAsciiAlpha(c)) {
-      this.currentTagKind = Tag.START;
-      this.currentTagName.length = 0;
-      this.currentTagName.push(asciiLower(c));
-      this.currentTagAttrs = {};
-      this.currentTagSelfClosing = false;
-      this.state = Tokenizer.TAG_NAME;
-      return false;
-    }
-
-    this._emitError("invalid-first-character-of-tag-name");
-    this._appendText("<");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.DATA;
-    return false;
   }
 
-  _stateEndTagOpen() {
-    const c = this._getChar();
+  function stateEndTagOpen(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofBeforeTagName);
+        appendText("</");
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c == null) {
-      this._emitError("eof-before-tag-name");
-      this._appendText("</");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+      case ">":
+        emitError(ErrorCode.MissingEndTagName);
+        state = State.Data;
+        return false;
+      default:
+        if (isAsciiAlpha(c)) {
+          currentTagKind = TagKind.End;
+          currentTagName = [asciiLower(c)];
+          currentTagAttrs.clear();
+          currentTagSelfClosing = false;
+          state = State.TagName;
+          return false;
+        }
+
+        emitError(ErrorCode.InvalidFirstCharacterOfTagName);
+        currentComment = [];
+        reconsumeCurrent();
+        state = State.BogusComment;
+        return false;
     }
-
-    if (isAsciiAlpha(c)) {
-      this.currentTagKind = Tag.END;
-      this.currentTagName.length = 0;
-      this.currentTagName.push(asciiLower(c));
-      this.currentTagAttrs = {};
-      this.currentTagSelfClosing = false;
-      this.state = Tokenizer.TAG_NAME;
-      return false;
-    }
-
-    if (c === ">") {
-      this._emitError("missing-end-tag-name");
-      this.state = Tokenizer.DATA;
-      return false;
-    }
-
-    this._emitError("invalid-first-character-of-tag-name");
-    this.currentComment.length = 0;
-    this._reconsumeCurrent();
-    this.state = Tokenizer.BOGUS_COMMENT;
-    return false;
   }
 
-  _stateTagName() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateTagName(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        emitToken(eofToken());
+        return true;
 
-    if (isWhitespace(c)) {
-      if (this.currentTagKind === Tag.END) this._emitError("end-tag-with-attributes");
-      this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
-      return false;
-    }
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        if (currentTagKind === TagKind.End) emitError(ErrorCode.EndTagWithAttributes);
+        state = State.BeforeAttributeName;
+        return false;
 
-    if (c === "/") {
-      this.state = Tokenizer.SELF_CLOSING_START_TAG;
-      return false;
-    }
+      case "/":
+        state = State.SelfClosingStartTag;
+        return false;
 
-    if (c === ">") {
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentTagName.push("\ufffd");
-      return false;
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentTagName.push("\uFFFD");
+        return false;
+      default:
+        currentTagName.push(asciiLower(c));
+        return false;
     }
-
-    this.currentTagName.push(asciiLower(c));
-    return false;
   }
 
-  _stateBeforeAttributeName() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateBeforeAttributeName(): boolean {
+    switch (getChar()) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        return false;
+
+      case "/":
+        state = State.SelfClosingStartTag;
+        return false;
+
+      case ">":
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
+
+      case "=":
+        emitError(ErrorCode.UnexpectedEqualsSignBeforeAttributeName);
+        startNewAttribute();
+        currentAttrName.push("=");
+        state = State.AttributeName;
+        return false;
+      default:
+        startNewAttribute();
+        reconsumeCurrent();
+        state = State.AttributeName;
+        return false;
     }
-
-    if (isWhitespace(c)) return false;
-
-    if (c === "/") {
-      this.state = Tokenizer.SELF_CLOSING_START_TAG;
-      return false;
-    }
-
-    if (c === ">") {
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
-
-    if (c === "=") {
-      this._emitError("unexpected-equals-sign-before-attribute-name");
-      this._startNewAttribute();
-      this.currentAttrName.push("=");
-      this.state = Tokenizer.ATTRIBUTE_NAME;
-      return false;
-    }
-
-    this._startNewAttribute();
-    this._reconsumeCurrent();
-    this.state = Tokenizer.ATTRIBUTE_NAME;
-    return false;
   }
 
-  _stateAttributeName() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateAttributeName(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (isWhitespace(c)) {
-      this._finishAttribute();
-      this.state = Tokenizer.AFTER_ATTRIBUTE_NAME;
-      return false;
-    }
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        finishAttribute();
+        state = State.AfterAttributeName;
+        return false;
 
-    if (c === "/") {
-      this._finishAttribute();
-      this.state = Tokenizer.SELF_CLOSING_START_TAG;
-      return false;
-    }
+      case "/":
+        finishAttribute();
+        state = State.SelfClosingStartTag;
+        return false;
 
-    if (c === "=") {
-      this.state = Tokenizer.BEFORE_ATTRIBUTE_VALUE;
-      return false;
-    }
+      case "=":
+        state = State.BeforeAttributeValue;
+        return false;
 
-    if (c === ">") {
-      this._finishAttribute();
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        finishAttribute();
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentAttrName.push("\ufffd");
-      return false;
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentAttrName.push("\uFFFD");
+        return false;
+      default:
+        currentAttrName.push(asciiLower(c));
+        return false;
     }
-
-    this.currentAttrName.push(asciiLower(c));
-    return false;
   }
 
-  _stateAfterAttributeName() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateAfterAttributeName(): boolean {
+    switch (getChar()) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        return false;
+
+      case "/":
+        state = State.SelfClosingStartTag;
+        return false;
+
+      case "=":
+        state = State.BeforeAttributeValue;
+        return false;
+
+      case ">":
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
+      default:
+        startNewAttribute();
+        reconsumeCurrent();
+        state = State.AttributeName;
+        return false;
     }
-
-    if (isWhitespace(c)) return false;
-
-    if (c === "/") {
-      this.state = Tokenizer.SELF_CLOSING_START_TAG;
-      return false;
-    }
-
-    if (c === "=") {
-      this.state = Tokenizer.BEFORE_ATTRIBUTE_VALUE;
-      return false;
-    }
-
-    if (c === ">") {
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
-
-    this._startNewAttribute();
-    this._reconsumeCurrent();
-    this.state = Tokenizer.ATTRIBUTE_NAME;
-    return false;
   }
 
-  _stateBeforeAttributeValue() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateBeforeAttributeValue(): boolean {
+    switch (getChar()) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        return false;
+
+      case '"':
+        state = State.AttributeValueDouble;
+        return false;
+
+      case "'":
+        state = State.AttributeValueSingle;
+        return false;
+
+      case ">":
+        emitError(ErrorCode.MissingAttributeValue);
+        finishAttribute();
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
+      default:
+        reconsumeCurrent();
+        state = State.AttributeValueUnquoted;
+        return false;
     }
-
-    if (isWhitespace(c)) return false;
-
-    if (c === '"') {
-      this.state = Tokenizer.ATTRIBUTE_VALUE_DOUBLE;
-      return false;
-    }
-
-    if (c === "'") {
-      this.state = Tokenizer.ATTRIBUTE_VALUE_SINGLE;
-      return false;
-    }
-
-    if (c === ">") {
-      this._emitError("missing-attribute-value");
-      this._finishAttribute();
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
-
-    this._reconsumeCurrent();
-    this.state = Tokenizer.ATTRIBUTE_VALUE_UNQUOTED;
-    return false;
   }
 
-  _stateAttributeValueDouble() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateAttributeValueDouble(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c === '"') {
-      this._finishAttribute();
-      this.state = Tokenizer.AFTER_ATTRIBUTE_VALUE_QUOTED;
-      return false;
-    }
+      case '"':
+        finishAttribute();
+        state = State.AfterAttributeValueQuoted;
+        return false;
 
-    if (c === "&") this.currentAttrValueHasAmp = true;
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentAttrValue.push("\ufffd");
-      return false;
+      case "&":
+        currentAttrValueHasAmp = true;
+        currentAttrValue.push(c);
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentAttrValue.push("\uFFFD");
+        return false;
+      default:
+        currentAttrValue.push(c);
+        return false;
     }
-    this.currentAttrValue.push(c);
-    return false;
   }
 
-  _stateAttributeValueSingle() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateAttributeValueSingle(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "'") {
-      this._finishAttribute();
-      this.state = Tokenizer.AFTER_ATTRIBUTE_VALUE_QUOTED;
-      return false;
-    }
+      case "'":
+        finishAttribute();
+        state = State.AfterAttributeValueQuoted;
+        return false;
 
-    if (c === "&") this.currentAttrValueHasAmp = true;
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentAttrValue.push("\ufffd");
-      return false;
+      case "&":
+        currentAttrValueHasAmp = true;
+        currentAttrValue.push(c);
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentAttrValue.push("\uFFFD");
+        return false;
+      default:
+        currentAttrValue.push(c);
+        return false;
     }
-    this.currentAttrValue.push(c);
-    return false;
   }
 
-  _stateAttributeValueUnquoted() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateAttributeValueUnquoted(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (isWhitespace(c)) {
-      this._finishAttribute();
-      this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
-      return false;
-    }
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        finishAttribute();
+        state = State.BeforeAttributeName;
+        return false;
 
-    if (c === "&") this.currentAttrValueHasAmp = true;
+      case "&":
+        currentAttrValueHasAmp = true;
+        currentAttrValue.push(c);
+        return false;
 
-    if (c === ">") {
-      this._finishAttribute();
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        finishAttribute();
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentAttrValue.push("\ufffd");
-      return false;
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentAttrValue.push("\uFFFD");
+        return false;
+      default:
+        currentAttrValue.push(c);
+        return false;
     }
-    this.currentAttrValue.push(c);
-    return false;
   }
 
-  _stateAfterAttributeValueQuoted() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateAfterAttributeValueQuoted(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (isWhitespace(c)) {
-      this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
-      return false;
-    }
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+      case "\r":
+        state = State.BeforeAttributeName;
+        return false;
 
-    if (c === "/") {
-      this.state = Tokenizer.SELF_CLOSING_START_TAG;
-      return false;
-    }
+      case "/":
+        state = State.SelfClosingStartTag;
+        return false;
 
-    if (c === ">") {
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        if (!emitCurrentTag()) {
+          state = State.Data;
+        }
+        return false;
 
-    this._emitError("missing-whitespace-between-attributes");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
-    return false;
+      default:
+        emitError(ErrorCode.MissingWhitespaceBetweenAttributes);
+        reconsumeCurrent();
+        state = State.BeforeAttributeName;
+        return false;
+    }
   }
 
-  _stateSelfClosingStartTag() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-tag");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateSelfClosingStartTag(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInTag);
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    if (c === ">") {
-      this.currentTagSelfClosing = true;
-      if (!this._emitCurrentTag()) this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        currentTagSelfClosing = true;
+        if (!emitCurrentTag()) state = State.Data;
+        return false;
 
-    this._emitError("unexpected-character-after-solidus-in-tag");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
-    return false;
+      default:
+        emitError(ErrorCode.UnexpectedCharacterAfterSolidusInTag);
+        reconsumeCurrent();
+        state = State.BeforeAttributeName;
+        return false;
+    }
   }
 
-  _stateMarkupDeclarationOpen() {
-    if (this._consumeIf("--")) {
-      this.currentComment.length = 0;
-      this.state = Tokenizer.COMMENT_START;
+  function stateMarkupDeclarationOpen(): boolean {
+    if (consumeIf("--")) {
+      currentComment = [];
+      state = State.CommentStart;
       return false;
     }
 
-    if (this._consumeCaseInsensitive("DOCTYPE")) {
-      this.currentDoctypeName.length = 0;
-      this.currentDoctypePublic = null;
-      this.currentDoctypeSystem = null;
-      this.currentDoctypeForceQuirks = false;
-      this.state = Tokenizer.DOCTYPE;
+    if (consumeCaseInsensitive("DOCTYPE")) {
+      currentDoctypeName = [];
+      currentDoctypePublic = undefined;
+      currentDoctypeSystem = undefined;
+      currentDoctypeForceQuirks = false;
+      state = State.Doctype;
       return false;
     }
 
-    if (this._consumeIf("[CDATA[")) {
+    if (consumeIf("[CDATA[")) {
       // CDATA sections are only valid in foreign content (SVG/MathML).
       // Tokenizer consults the current treebuilder stack to decide.
-      const stack = this.sink?.open_elements;
+      const stack = sink.openElements;
       if (Array.isArray(stack) && stack.length) {
-        const current = stack[stack.length - 1];
-        const ns = current?.namespace ?? null;
+        const current = stack.at(-1)!;
+        const ns = current.namespace ?? null;
         if (ns && ns !== "html") {
-          this.state = Tokenizer.CDATA_SECTION;
+          state = State.CDATASection;
           return false;
         }
       }
 
       // Treat as bogus comment in HTML context, preserving "[CDATA[" prefix.
-      this._emitError("cdata-in-html-content");
-      this.currentComment.length = 0;
-      this.currentComment.push(..."[CDATA[");
-      this.state = Tokenizer.BOGUS_COMMENT;
+      emitError(ErrorCode.CdataInHtmlContent);
+      currentComment = ["[CDATA["];
+      state = State.BogusComment;
       return false;
     }
 
-    this._emitError("incorrectly-opened-comment");
-    this.currentComment.length = 0;
-    this.state = Tokenizer.BOGUS_COMMENT;
+    emitError(ErrorCode.IncorrectlyOpenedComment);
+    currentComment = [];
+    state = State.BogusComment;
     return false;
   }
 
-  _stateCommentStart() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateCommentStart(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "-") {
-      this.state = Tokenizer.COMMENT_START_DASH;
-      return false;
-    }
+      case "-":
+        state = State.CommentStartDash;
+        return false;
 
-    if (c === ">") {
-      this._emitError("abrupt-closing-of-empty-comment");
-      this._emitComment();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitError(ErrorCode.AbruptClosingOfEmptyComment);
+        emitComment();
+        state = State.Data;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push(replacement);
-    } else {
-      this.currentComment.push(c);
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push(replacement);
+        break;
+
+      default:
+        currentComment.push(c);
+        break;
     }
-    this.state = Tokenizer.COMMENT;
+    state = State.Comment;
     return false;
   }
 
-  _stateCommentStartDash() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateCommentStartDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "-") {
-      this.state = Tokenizer.COMMENT_END;
-      return false;
-    }
+      case "-":
+        state = State.CommentEnd;
+        return false;
 
-    if (c === ">") {
-      this._emitError("abrupt-closing-of-empty-comment");
-      this._emitComment();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitError(ErrorCode.AbruptClosingOfEmptyComment);
+        emitComment();
+        state = State.Data;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push("-", replacement);
-    } else {
-      this.currentComment.push("-", c);
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push("-", replacement);
+        break;
+
+      default:
+        currentComment.push("-", c);
+        break;
     }
-    this.state = Tokenizer.COMMENT;
+    state = State.Comment;
     return false;
   }
 
-  _stateComment() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateComment(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "-") {
-      this.state = Tokenizer.COMMENT_END_DASH;
-      return false;
-    }
+      case "-":
+        state = State.CommentEndDash;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push(replacement);
-      return false;
-    }
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push(replacement);
+        return false;
 
-    this.currentComment.push(c);
-    return false;
+      default:
+        currentComment.push(c);
+        return false;
+    }
   }
 
-  _stateCommentEndDash() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateCommentEndDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "-") {
-      this.state = Tokenizer.COMMENT_END;
-      return false;
-    }
+      case "-":
+        state = State.CommentEnd;
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push("-", replacement);
-      this.state = Tokenizer.COMMENT;
-      return false;
-    }
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push("-", replacement);
+        state = State.Comment;
+        return false;
 
-    this.currentComment.push("-", c);
-    this.state = Tokenizer.COMMENT;
-    return false;
+      default:
+        currentComment.push("-", c);
+        state = State.Comment;
+        return false;
+    }
   }
 
-  _stateCommentEnd() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateCommentEnd(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === ">") {
-      this._emitComment();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitComment();
+        state = State.Data;
+        return false;
 
-    if (c === "!") {
-      this.state = Tokenizer.COMMENT_END_BANG;
-      return false;
-    }
+      case "!":
+        state = State.CommentEndBang;
+        return false;
 
-    if (c === "-") {
-      this.currentComment.push("-");
-      return false;
-    }
+      case "-":
+        currentComment.push("-");
+        return false;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push("-", "-", replacement);
-      this.state = Tokenizer.COMMENT;
-      return false;
-    }
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push("-", "-", replacement);
+        state = State.Comment;
+        return false;
 
-    this._emitError("incorrectly-closed-comment");
-    this.currentComment.push("-", "-", c);
-    this.state = Tokenizer.COMMENT;
-    return false;
+      default:
+        emitError(ErrorCode.IncorrectlyClosedComment);
+        currentComment.push("-", "-", c);
+        state = State.Comment;
+        return false;
+    }
   }
 
-  _stateCommentEndBang() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-comment");
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateCommentEndBang(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitError(ErrorCode.EofInComment);
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "-") {
-      this.currentComment.push("-", "-", "!");
-      this.state = Tokenizer.COMMENT_END_DASH;
-      return false;
-    }
+      case "-":
+        currentComment.push("-", "-", "!");
+        state = State.CommentEndDash;
+        return false;
 
-    if (c === ">") {
-      this._emitError("incorrectly-closed-comment");
-      this._emitComment();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitError(ErrorCode.IncorrectlyClosedComment);
+        emitComment();
+        state = State.Data;
 
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this.currentComment.push("-", "-", "!", replacement);
-      this.state = Tokenizer.COMMENT;
-      return false;
-    }
+        return false;
 
-    this.currentComment.push("-", "-", "!", c);
-    this.state = Tokenizer.COMMENT;
-    return false;
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        currentComment.push("-", "-", "!", replacement);
+        state = State.Comment;
+        return false;
+
+      default:
+        currentComment.push("-", "-", "!", c);
+        state = State.Comment;
+        return false;
+    }
   }
 
-  _stateBogusComment() {
-    const replacement = "\ufffd";
-    const c = this._getChar();
-    if (c == null) {
-      this._emitComment();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateBogusComment(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        emitComment();
+        emitToken(eofToken());
+        return true;
 
-    if (c === ">") {
-      this._emitComment();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitComment();
+        state = State.Data;
+        return false;
 
-    if (c === "\0") this.currentComment.push(replacement);
-    else this.currentComment.push(c);
-    return false;
+      case "\0":
+        currentComment.push(replacement);
+        return false;
+
+      default:
+        currentComment.push(c);
+        return false;
+    }
   }
 
-  _stateDoctype() {
-    const c = this._getChar();
-    if (c == null) {
-      this._emitError("eof-in-doctype");
-      this.currentDoctypeForceQuirks = true;
-      this._emitDoctype();
-      this._emitToken(new EOFToken());
-      return true;
-    }
+  function stateDoctype(): boolean {
+    switch (getChar()) {
+      case null:
+        emitError(ErrorCode.EofInDoctype);
+        currentDoctypeForceQuirks = true;
+        emitDoctype();
+        emitToken(eofToken());
+        return true;
 
-    if (c === "\t" || c === "\n" || c === "\f" || c === " ") {
-      this.state = Tokenizer.BEFORE_DOCTYPE_NAME;
-      return false;
-    }
+      case "\t":
+      case "\n":
+      case "\f":
+      case " ":
+        state = State.BeforeDoctypeName;
+        return false;
 
-    if (c === ">") {
-      this._emitError("expected-doctype-name-but-got-right-bracket");
-      this.currentDoctypeForceQuirks = true;
-      this._emitDoctype();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+      case ">":
+        emitError(ErrorCode.ExpectedDoctypeNameButGotRightBracket);
+        currentDoctypeForceQuirks = true;
+        emitDoctype();
+        state = State.Data;
+        return false;
 
-    this._emitError("missing-whitespace-before-doctype-name");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.BEFORE_DOCTYPE_NAME;
-    return false;
+      default:
+        emitError(ErrorCode.MissingWhitespaceBeforeDoctypeName);
+        reconsumeCurrent();
+        state = State.BeforeDoctypeName;
+        return false;
+    }
   }
 
-  _stateBeforeDoctypeName() {
+  function stateBeforeDoctypeName(): boolean {
     // Skip whitespace
-    // eslint-disable-next-line no-constant-condition
     while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-name");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypeName);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case ">":
+          emitError(ErrorCode.ExpectedDoctypeNameButGotRightBracket);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypeName.push("\uFFFD");
+          state = State.DoctypeName;
+          return false;
+
+        default:
+          if (c >= "A" && c <= "Z") {
+            currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
+          } else {
+            currentDoctypeName.push(c);
+          }
+          state = State.DoctypeName;
+          return false;
       }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === ">") {
-        this._emitError("expected-doctype-name-but-got-right-bracket");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
+    }
+  }
+
+  function stateDoctypeName(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypeName);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          state = State.AfterDoctypeName;
+          return false;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypeName.push("\uFFFD");
+          continue;
+
+        default:
+          if (c >= "A" && c <= "Z") {
+            currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
+          } else {
+            currentDoctypeName.push(c);
+          }
       }
-      if (c >= "A" && c <= "Z")
-        this.currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
-      else if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypeName.push("\ufffd");
-      } else {
-        this.currentDoctypeName.push(c);
+    }
+  }
+
+  function stateAfterDoctypeName(): boolean {
+    if (consumeCaseInsensitive("PUBLIC")) {
+      state = State.AfterDoctypePublicKeyword;
+      return false;
+    }
+    if (consumeCaseInsensitive("SYSTEM")) {
+      state = State.AfterDoctypeSystemKeyword;
+      return false;
+    }
+
+    while (true) {
+      switch (getChar()) {
+        case null:
+          emitError(ErrorCode.EofInDoctype);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          emitError(ErrorCode.MissingWhitespaceAfterDoctypeName);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
       }
-      this.state = Tokenizer.DOCTYPE_NAME;
+    }
+  }
+
+  function stateAfterDoctypePublicKeyword(): boolean {
+    while (true) {
+      switch (getChar()) {
+        case null:
+          emitError(ErrorCode.MissingQuoteBeforeDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          state = State.BeforeDoctypePublicIdentifier;
+          return false;
+
+        case '"':
+          emitError(ErrorCode.MissingWhitespaceBeforeDoctypePublicIdentifier);
+          currentDoctypePublic = [];
+          state = State.DoctypePublicIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          emitError(ErrorCode.MissingWhitespaceBeforeDoctypePublicIdentifier);
+          currentDoctypePublic = [];
+          state = State.DoctypePublicIdentifierSingleQuoted;
+          return false;
+
+        case ">":
+          emitError(ErrorCode.MissingDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          emitError(ErrorCode.UnexpectedCharacterAfterDoctypePublicKeyword);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateAfterDoctypeSystemKeyword(): boolean {
+    while (true) {
+      switch (getChar()) {
+        case null:
+          emitError(ErrorCode.MissingQuoteBeforeDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          state = State.BeforeDoctypeSystemIdentifier;
+          return false;
+
+        case '"':
+          emitError(ErrorCode.MissingWhitespaceAfterDoctypePublicIdentifier);
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          emitError(ErrorCode.MissingWhitespaceAfterDoctypePublicIdentifier);
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierSingleQuoted;
+          return false;
+
+        case ">":
+          emitError(ErrorCode.MissingDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          emitError(ErrorCode.UnexpectedCharacterAfterDoctypeSystemKeyword);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateBeforeDoctypePublicIdentifier(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.MissingDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case '"':
+          currentDoctypePublic = [];
+          state = State.DoctypePublicIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          currentDoctypePublic = [];
+          state = State.DoctypePublicIdentifierSingleQuoted;
+          return false;
+
+        case ">":
+          emitError(ErrorCode.MissingDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+      }
+
+      emitError(ErrorCode.MissingQuoteBeforeDoctypePublicIdentifier);
+      currentDoctypeForceQuirks = true;
+      reconsumeCurrent();
+      state = State.BogusDoctype;
       return false;
     }
   }
 
-  _stateDoctypeName() {
-    // eslint-disable-next-line no-constant-condition
+  function stateDoctypePublicIdentifierDoubleQuoted(): boolean {
     while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-name");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case '"':
+          state = State.AfterDoctypePublicIdentifier;
+          return false;
+
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypePublic!.push("\uFFFD");
+          continue;
+
+        case ">":
+          emitError(ErrorCode.AbruptDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
       }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") {
-        this.state = Tokenizer.AFTER_DOCTYPE_NAME;
-        return false;
-      }
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      if (c >= "A" && c <= "Z") {
-        this.currentDoctypeName.push(String.fromCharCode(c.charCodeAt(0) + 32));
-        continue;
-      }
-      if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypeName.push("\ufffd");
-        continue;
-      }
-      this.currentDoctypeName.push(c);
+      currentDoctypePublic!.push(c);
     }
   }
 
-  _stateAfterDoctypeName() {
-    if (this._consumeCaseInsensitive("PUBLIC")) {
-      this.state = Tokenizer.AFTER_DOCTYPE_PUBLIC_KEYWORD;
-      return false;
-    }
-    if (this._consumeCaseInsensitive("SYSTEM")) {
-      this.state = Tokenizer.AFTER_DOCTYPE_SYSTEM_KEYWORD;
-      return false;
-    }
-    // eslint-disable-next-line no-constant-condition
+  function stateDoctypePublicIdentifierSingleQuoted(): boolean {
     while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("missing-whitespace-after-doctype-name");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
 
-  _stateAfterDoctypePublicKeyword() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("missing-quote-before-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") {
-        this.state = Tokenizer.BEFORE_DOCTYPE_PUBLIC_IDENTIFIER;
-        return false;
-      }
-      if (c === '"') {
-        this._emitError("missing-whitespace-before-doctype-public-identifier");
-        this.currentDoctypePublic = [];
-        this.state = Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this._emitError("missing-whitespace-before-doctype-public-identifier");
-        this.currentDoctypePublic = [];
-        this.state = Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      if (c === ">") {
-        this._emitError("missing-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("unexpected-character-after-doctype-public-keyword");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
+        case "'":
+          state = State.AfterDoctypePublicIdentifier;
+          return false;
 
-  _stateAfterDoctypeSystemKeyword() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("missing-quote-before-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") {
-        this.state = Tokenizer.BEFORE_DOCTYPE_SYSTEM_IDENTIFIER;
-        return false;
-      }
-      if (c === '"') {
-        this._emitError("missing-whitespace-after-doctype-public-identifier");
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this._emitError("missing-whitespace-after-doctype-public-identifier");
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      if (c === ">") {
-        this._emitError("missing-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("unexpected-character-after-doctype-system-keyword");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypePublic!.push("\uFFFD");
+          continue;
 
-  _stateBeforeDoctypePublicIdentifier() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("missing-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === '"') {
-        this.currentDoctypePublic = [];
-        this.state = Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this.currentDoctypePublic = [];
-        this.state = Tokenizer.DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      if (c === ">") {
-        this._emitError("missing-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("missing-quote-before-doctype-public-identifier");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
+        case ">":
+          emitError(ErrorCode.AbruptDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
 
-  _stateDoctypePublicIdentifierDoubleQuoted() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === '"') {
-        this.state = Tokenizer.AFTER_DOCTYPE_PUBLIC_IDENTIFIER;
-        return false;
-      }
-      if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypePublic.push("\ufffd");
-        continue;
-      }
-      if (c === ">") {
-        this._emitError("abrupt-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this.currentDoctypePublic.push(c);
-    }
-  }
-
-  _stateDoctypePublicIdentifierSingleQuoted() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "'") {
-        this.state = Tokenizer.AFTER_DOCTYPE_PUBLIC_IDENTIFIER;
-        return false;
-      }
-      if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypePublic.push("\ufffd");
-        continue;
-      }
-      if (c === ">") {
-        this._emitError("abrupt-doctype-public-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this.currentDoctypePublic.push(c);
-    }
-  }
-
-  _stateAfterDoctypePublicIdentifier() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError(
-          "missing-whitespace-between-doctype-public-and-system-identifiers"
-        );
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") {
-        this.state = Tokenizer.BETWEEN_DOCTYPE_PUBLIC_AND_SYSTEM_IDENTIFIERS;
-        return false;
-      }
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      if (c === '"') {
-        this._emitError(
-          "missing-whitespace-between-doctype-public-and-system-identifiers"
-        );
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this._emitError(
-          "missing-whitespace-between-doctype-public-and-system-identifiers"
-        );
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      this._emitError("unexpected-character-after-doctype-public-identifier");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
-
-  _stateBetweenDoctypePublicAndSystemIdentifiers() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("missing-quote-before-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      if (c === '"') {
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      this._emitError("missing-quote-before-doctype-system-identifier");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
-
-  _stateBeforeDoctypeSystemIdentifier() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("missing-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === '"') {
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED;
-        return false;
-      }
-      if (c === "'") {
-        this.currentDoctypeSystem = [];
-        this.state = Tokenizer.DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
-        return false;
-      }
-      if (c === ">") {
-        this._emitError("missing-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("missing-quote-before-doctype-system-identifier");
-      this.currentDoctypeForceQuirks = true;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
-
-  _stateDoctypeSystemIdentifierDoubleQuoted() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === '"') {
-        this.state = Tokenizer.AFTER_DOCTYPE_SYSTEM_IDENTIFIER;
-        return false;
-      }
-      if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypeSystem.push("\ufffd");
-        continue;
-      }
-      if (c === ">") {
-        this._emitError("abrupt-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this.currentDoctypeSystem.push(c);
-    }
-  }
-
-  _stateDoctypeSystemIdentifierSingleQuoted() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "'") {
-        this.state = Tokenizer.AFTER_DOCTYPE_SYSTEM_IDENTIFIER;
-        return false;
-      }
-      if (c === "\0") {
-        this._emitError("unexpected-null-character");
-        this.currentDoctypeSystem.push("\ufffd");
-        continue;
-      }
-      if (c === ">") {
-        this._emitError("abrupt-doctype-system-identifier");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this.currentDoctypeSystem.push(c);
-    }
-  }
-
-  _stateAfterDoctypeSystemIdentifier() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-doctype");
-        this.currentDoctypeForceQuirks = true;
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === "\t" || c === "\n" || c === "\f" || c === " ") continue;
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
-      }
-      this._emitError("unexpected-character-after-doctype-system-identifier");
-      this._reconsumeCurrent();
-      this.state = Tokenizer.BOGUS_DOCTYPE;
-      return false;
-    }
-  }
-
-  _stateBogusDoctype() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitDoctype();
-        this._emitToken(new EOFToken());
-        return true;
-      }
-      if (c === ">") {
-        this._emitDoctype();
-        this.state = Tokenizer.DATA;
-        return false;
+        default:
+          currentDoctypePublic!.push(c);
       }
     }
   }
 
-  _stateCdataSection() {
+  function stateAfterDoctypePublicIdentifier(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          state = State.BetweenDoctypePublicAndSystemIdentifiers;
+          return false;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        case '"':
+          emitError(ErrorCode.MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          emitError(ErrorCode.MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierSingleQuoted;
+          return false;
+
+        default:
+          emitError(ErrorCode.UnexpectedCharacterAfterDoctypePublicIdentifier);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateBetweenDoctypePublicAndSystemIdentifiers(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.MissingQuoteBeforeDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        case '"':
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierSingleQuoted;
+          return false;
+
+        default:
+          emitError(ErrorCode.MissingQuoteBeforeDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateBeforeDoctypeSystemIdentifier(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.MissingDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case '"':
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierDoubleQuoted;
+          return false;
+
+        case "'":
+          currentDoctypeSystem = [];
+          state = State.DoctypeSystemIdentifierSingleQuoted;
+          return false;
+
+        case ">":
+          emitError(ErrorCode.MissingDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          emitError(ErrorCode.MissingQuoteBeforeDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateDoctypeSystemIdentifierDoubleQuoted(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case '"':
+          state = State.AfterDoctypeSystemIdentifier;
+          return false;
+
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypeSystem!.push("\uFFFD");
+          continue;
+
+        case ">":
+          emitError(ErrorCode.AbruptDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          currentDoctypeSystem!.push(c);
+      }
+    }
+  }
+
+  function stateDoctypeSystemIdentifierSingleQuoted(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "'":
+          state = State.AfterDoctypeSystemIdentifier;
+          return false;
+
+        case "\0":
+          emitError(ErrorCode.UnexpectedNullCharacter);
+          currentDoctypeSystem!.push("\uFFFD");
+          continue;
+
+        case ">":
+          emitError(ErrorCode.AbruptDoctypeSystemIdentifier);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          currentDoctypeSystem!.push(c);
+      }
+    }
+  }
+
+  function stateAfterDoctypeSystemIdentifier(): boolean {
+    while (true) {
+      switch (getChar()) {
+        case null:
+          emitError(ErrorCode.EofInDoctype);
+          currentDoctypeForceQuirks = true;
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case "\t":
+        case "\n":
+        case "\f":
+        case " ":
+          continue;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+
+        default:
+          emitError(ErrorCode.UnexpectedCharacterAfterDoctypeSystemIdentifier);
+          reconsumeCurrent();
+          state = State.BogusDoctype;
+          return false;
+      }
+    }
+  }
+
+  function stateBogusDoctype(): boolean {
+    while (true) {
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitDoctype();
+          emitToken(eofToken());
+          return true;
+
+        case ">":
+          emitDoctype();
+          state = State.Data;
+          return false;
+      }
+    }
+  }
+
+  function stateCdataSection(): boolean {
     // Consume characters until we see ']'.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
-      const c = this._getChar();
-      if (c == null) {
-        this._emitError("eof-in-cdata");
-        this._flushText();
-        this._emitToken(new EOFToken());
-        return true;
+      const c = getChar();
+      switch (c) {
+        case null:
+          emitError(ErrorCode.EofInCdata);
+          flushText();
+          emitToken(eofToken());
+          return true;
+
+        case "]":
+          state = State.CDATASectionBracket;
+          return false;
+
+        default:
+          appendText(c);
       }
-      if (c === "]") {
-        this.state = Tokenizer.CDATA_SECTION_BRACKET;
+    }
+  }
+
+  function stateCdataSectionBracket(): boolean {
+    const c = getChar();
+    switch (c) {
+      case "]":
+        state = State.CDATASectionEnd;
         return false;
-      }
-      this._appendText(c);
+
+      case null:
+        appendText("]");
+        emitError(ErrorCode.EofInCdata);
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      default:
+        appendText("]");
+        reconsumeCurrent();
+        state = State.CDATASection;
+        return false;
     }
   }
 
-  _stateCdataSectionBracket() {
-    const c = this._getChar();
-    if (c === "]") {
-      this.state = Tokenizer.CDATA_SECTION_END;
-      return false;
-    }
+  function stateCdataSectionEnd(): boolean {
+    const c = getChar();
+    switch (c) {
+      case ">":
+        flushText();
+        state = State.Data;
+        return false;
 
-    this._appendText("]");
-    if (c == null) {
-      this._emitError("eof-in-cdata");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+      case null:
+        appendText("]");
+        appendText("]");
+        emitError(ErrorCode.EofInCdata);
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "]":
+        appendText("]");
+        return false;
+
+      default:
+        appendText("]");
+        appendText("]");
+        reconsumeCurrent();
+        state = State.CDATASection;
+        return false;
     }
-    this._reconsumeCurrent();
-    this.state = Tokenizer.CDATA_SECTION;
-    return false;
   }
 
-  _stateCdataSectionEnd() {
-    const c = this._getChar();
-    if (c === ">") {
-      this._flushText();
-      this.state = Tokenizer.DATA;
-      return false;
-    }
+  function stateRcdata(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
 
-    this._appendText("]");
-    if (c == null) {
-      this._appendText("]");
-      this._emitError("eof-in-cdata");
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+      case "<":
+        state = State.RCDATALessThanSign;
+        return false;
+
+      case "&":
+        appendText("&");
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-    if (c === "]") {
-      return false;
-    }
-    this._appendText("]");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.CDATA_SECTION;
-    return false;
   }
 
-  _stateRcdata() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateRcdataLessThanSign(): boolean {
+    const c = getChar();
+    switch (c) {
+      case "/":
+        currentTagName = [];
+        originalTagName = [];
+        state = State.RCDATAEndTagOpen;
+        return false;
+      default:
+        appendText("<");
+        reconsumeCurrent();
+        state = State.RCDATA;
+        return false;
     }
-    if (c === "<") {
-      this.state = Tokenizer.RCDATA_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === "&") {
-      this._appendText("&");
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      return false;
-    }
-    this._appendText(c);
-    return false;
   }
 
-  _stateRcdataLessThanSign() {
-    const c = this._getChar();
-    if (c === "/") {
-      this.currentTagName.length = 0;
-      this.originalTagName.length = 0;
-      this.state = Tokenizer.RCDATA_END_TAG_OPEN;
-      return false;
-    }
-    this._appendText("<");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.RCDATA;
-    return false;
-  }
-
-  _stateRcdataEndTagOpen() {
-    const c = this._getChar();
+  function stateRcdataEndTagOpen(): boolean {
+    const c = getChar();
     if (c != null && isAsciiAlpha(c)) {
-      this.currentTagName.push(asciiLower(c));
-      this.originalTagName.push(c);
-      this.state = Tokenizer.RCDATA_END_TAG_NAME;
+      currentTagName.push(asciiLower(c));
+      originalTagName.push(c);
+      state = State.RCDATAEndTagName;
       return false;
     }
-    this.textBuffer.push("<", "/");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.RCDATA;
+    textBuffer.push("<", "/");
+    reconsumeCurrent();
+    state = State.RCDATA;
     return false;
   }
 
-  _stateRcdataEndTagName() {
-    // eslint-disable-next-line no-constant-condition
+  function stateRcdataEndTagName(): boolean {
     while (true) {
-      const c = this._getChar();
+      const c = getChar();
       if (c != null && isAsciiAlpha(c)) {
-        this.currentTagName.push(asciiLower(c));
-        this.originalTagName.push(c);
+        currentTagName.push(asciiLower(c));
+        originalTagName.push(c);
         continue;
       }
 
-      const tagName = this.currentTagName.join("");
-      if (tagName === this.rawtextTagName) {
+      const tagName = currentTagName.join("");
+      if (tagName === rawTextTagName) {
         if (c === ">") {
-          this._flushText();
-          this._emitToken(new Tag(Tag.END, tagName, {}, false));
-          this.state = Tokenizer.DATA;
-          this.rawtextTagName = null;
-          this.currentTagName.length = 0;
-          this.originalTagName.length = 0;
+          flushText();
+          emitToken(createTagToken(TagKind.End, tagName, new Map(), false));
+          state = State.Data;
+          rawTextTagName = undefined;
+          currentTagName = [];
+          originalTagName = [];
           return false;
         }
         if (isWhitespace(c)) {
-          this._flushText();
-          this.currentTagKind = Tag.END;
-          this.currentTagAttrs = {};
-          this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
+          flushText();
+          currentTagKind = TagKind.End;
+          currentTagAttrs.clear();
+          state = State.BeforeAttributeName;
           return false;
         }
         if (c === "/") {
-          this._flushText();
-          this.currentTagKind = Tag.END;
-          this.currentTagAttrs = {};
-          this.state = Tokenizer.SELF_CLOSING_START_TAG;
+          flushText();
+          currentTagKind = TagKind.End;
+          currentTagAttrs.clear();
+          state = State.SelfClosingStartTag;
           return false;
         }
       }
 
       if (c == null) {
-        this.textBuffer.push("<", "/");
-        for (const ch of this.originalTagName) this._appendText(ch);
-        this.currentTagName.length = 0;
-        this.originalTagName.length = 0;
-        this._flushText();
-        this._emitToken(new EOFToken());
+        textBuffer.push("<", "/");
+        for (const ch of originalTagName) appendText(ch);
+        currentTagName = [];
+        originalTagName = [];
+        flushText();
+        emitToken(eofToken());
         return true;
       }
 
-      this.textBuffer.push("<", "/");
-      for (const ch of this.originalTagName) this._appendText(ch);
-      this.currentTagName.length = 0;
-      this.originalTagName.length = 0;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.RCDATA;
+      textBuffer.push("<", "/");
+      for (const ch of originalTagName) appendText(ch);
+      currentTagName = [];
+      originalTagName = [];
+      reconsumeCurrent();
+      state = State.RCDATA;
       return false;
     }
   }
 
-  _stateRawtext() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      return false;
-    }
-    if (c === "<") {
-      if (this.rawtextTagName === "script") {
-        const next1 = this._peekChar(0);
-        const next2 = this._peekChar(1);
-        const next3 = this._peekChar(2);
-        if (next1 === "!" && next2 === "-" && next3 === "-") {
-          this.textBuffer.push("<", "!", "-", "-");
-          this._getChar();
-          this._getChar();
-          this._getChar();
-          this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-          return false;
+  function stateRawText(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        return false;
+
+      case "<":
+        if (rawTextTagName === "script") {
+          const next1 = peekChar(0);
+          const next2 = peekChar(1);
+          const next3 = peekChar(2);
+          if (next1 === "!" && next2 === "-" && next3 === "-") {
+            textBuffer.push("<", "!", "-", "-");
+            getChar();
+            getChar();
+            getChar();
+            state = State.ScriptDataEscaped;
+            return false;
+          }
         }
-      }
-      this.state = Tokenizer.RAWTEXT_LESS_THAN_SIGN;
-      return false;
+        state = State.RawTextLessThanSign;
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-    this._appendText(c);
-    return false;
   }
 
-  _stateRawtextLessThanSign() {
-    const c = this._getChar();
-    if (c === "/") {
-      this.currentTagName.length = 0;
-      this.originalTagName.length = 0;
-      this.state = Tokenizer.RAWTEXT_END_TAG_OPEN;
-      return false;
+  function stateRawTextLessThanSign(): boolean {
+    const c = getChar();
+    switch (c) {
+      case "/":
+        currentTagName = [];
+        originalTagName = [];
+        state = State.RawTextEndTagOpen;
+        return false;
+      default:
+        appendText("<");
+        reconsumeCurrent();
+        state = State.RawText;
+        return false;
     }
-    this._appendText("<");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.RAWTEXT;
-    return false;
   }
 
-  _stateRawtextEndTagOpen() {
-    const c = this._getChar();
+  function stateRawTextEndTagOpen(): boolean {
+    const c = getChar();
     if (c != null && isAsciiAlpha(c)) {
-      this.currentTagName.push(asciiLower(c));
-      this.originalTagName.push(c);
-      this.state = Tokenizer.RAWTEXT_END_TAG_NAME;
+      currentTagName.push(asciiLower(c));
+      originalTagName.push(c);
+      state = State.RawTextEndTagName;
       return false;
     }
-    this.textBuffer.push("<", "/");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.RAWTEXT;
+    textBuffer.push("<", "/");
+    reconsumeCurrent();
+    state = State.RawText;
     return false;
   }
 
-  _stateRawtextEndTagName() {
-    // eslint-disable-next-line no-constant-condition
+  function stateRawTextEndTagName(): boolean {
     while (true) {
-      const c = this._getChar();
+      const c = getChar();
       if (c != null && isAsciiAlpha(c)) {
-        this.currentTagName.push(asciiLower(c));
-        this.originalTagName.push(c);
+        currentTagName.push(asciiLower(c));
+        originalTagName.push(c);
         continue;
       }
 
-      const tagName = this.currentTagName.join("");
-      if (tagName === this.rawtextTagName) {
+      const tagName = currentTagName.join("");
+      if (tagName === rawTextTagName) {
         if (c === ">") {
-          this._flushText();
-          this._emitToken(new Tag(Tag.END, tagName, {}, false));
-          this.state = Tokenizer.DATA;
-          this.rawtextTagName = null;
-          this.currentTagName.length = 0;
-          this.originalTagName.length = 0;
+          flushText();
+          emitToken(createTagToken(TagKind.End, tagName, new Map(), false));
+          state = State.Data;
+          rawTextTagName = undefined;
+          currentTagName = [];
+          originalTagName = [];
           return false;
         }
         if (isWhitespace(c)) {
-          this._flushText();
-          this.currentTagKind = Tag.END;
-          this.currentTagAttrs = {};
-          this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
+          flushText();
+          currentTagKind = TagKind.End;
+          currentTagAttrs.clear();
+          state = State.BeforeAttributeName;
           return false;
         }
         if (c === "/") {
-          this._flushText();
-          this.currentTagKind = Tag.END;
-          this.currentTagAttrs = {};
-          this.state = Tokenizer.SELF_CLOSING_START_TAG;
+          flushText();
+          currentTagKind = TagKind.End;
+          currentTagAttrs.clear();
+          state = State.SelfClosingStartTag;
           return false;
         }
       }
 
       if (c == null) {
-        this.textBuffer.push("<", "/");
-        for (const ch of this.originalTagName) this._appendText(ch);
-        this.currentTagName.length = 0;
-        this.originalTagName.length = 0;
-        this._flushText();
-        this._emitToken(new EOFToken());
+        textBuffer.push("<", "/");
+        for (const ch of originalTagName) appendText(ch);
+        currentTagName = [];
+        originalTagName = [];
+        flushText();
+        emitToken(eofToken());
         return true;
       }
 
-      this.textBuffer.push("<", "/");
-      for (const ch of this.originalTagName) this._appendText(ch);
-      this.currentTagName.length = 0;
-      this.originalTagName.length = 0;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.RAWTEXT;
+      textBuffer.push("<", "/");
+      for (const ch of originalTagName) appendText(ch);
+      currentTagName = [];
+      originalTagName = [];
+      reconsumeCurrent();
+      state = State.RawText;
       return false;
     }
   }
 
-  _stateScriptDataEscaped() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataEscaped(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        state = State.ScriptDataEscapedDash;
+        return false;
+
+      case "<":
+        state = State.ScriptDataEscapedLessThanSign;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_DASH;
-      return false;
-    }
-    if (c === "<") {
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      return false;
-    }
-    this._appendText(c);
-    return false;
   }
 
-  _stateScriptDataEscapedDash() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataEscapedDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        state = State.ScriptDataEscapedDashDash;
+        return false;
+
+      case "<":
+        state = State.ScriptDataEscapedLessThanSign;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        state = State.ScriptDataEscaped;
+        return false;
+      default:
+        appendText(c);
+        state = State.ScriptDataEscaped;
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_DASH_DASH;
-      return false;
-    }
-    if (c === "<") {
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-      return false;
-    }
-    this._appendText(c);
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-    return false;
   }
 
-  _stateScriptDataEscapedDashDash() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataEscapedDashDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        return false;
+
+      case "<":
+        appendText("<");
+        state = State.ScriptDataEscapedLessThanSign;
+        return false;
+
+      case ">":
+        appendText(">");
+        state = State.RawText;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        state = State.ScriptDataEscaped;
+        return false;
+      default:
+        appendText(c);
+        state = State.ScriptDataEscaped;
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      return false;
-    }
-    if (c === "<") {
-      this._appendText("<");
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === ">") {
-      this._appendText(">");
-      this.state = Tokenizer.RAWTEXT;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-      return false;
-    }
-    this._appendText(c);
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-    return false;
   }
 
-  _stateScriptDataEscapedLessThanSign() {
-    const c = this._getChar();
+  function stateScriptDataEscapedLessThanSign(): boolean {
+    const c = getChar();
     if (c === "/") {
-      this.tempBuffer.length = 0;
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_END_TAG_OPEN;
+      tempBuffer = [];
+      state = State.ScriptDataEscapedEndTagOpen;
       return false;
     }
     if (c != null && isAsciiAlpha(c)) {
-      this.tempBuffer.length = 0;
-      this._appendText("<");
-      this._reconsumeCurrent();
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPE_START;
+      tempBuffer = [];
+      appendText("<");
+      reconsumeCurrent();
+      state = State.ScriptDataDoubleEscapeStart;
       return false;
     }
-    this._appendText("<");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
+    appendText("<");
+    reconsumeCurrent();
+    state = State.ScriptDataEscaped;
     return false;
   }
 
-  _stateScriptDataEscapedEndTagOpen() {
-    const c = this._getChar();
+  function stateScriptDataEscapedEndTagOpen(): boolean {
+    const c = getChar();
     if (c != null && isAsciiAlpha(c)) {
-      this.currentTagName.length = 0;
-      this.originalTagName.length = 0;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.SCRIPT_DATA_ESCAPED_END_TAG_NAME;
+      currentTagName = [];
+      originalTagName = [];
+      reconsumeCurrent();
+      state = State.ScriptDataEscapedEndTagName;
       return false;
     }
-    this.textBuffer.push("<", "/");
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
+    textBuffer.push("<", "/");
+    reconsumeCurrent();
+    state = State.ScriptDataEscaped;
     return false;
   }
 
-  _stateScriptDataEscapedEndTagName() {
-    const c = this._getChar();
+  function stateScriptDataEscapedEndTagName(): boolean {
+    const c = getChar();
     if (c != null && isAsciiAlpha(c)) {
-      this.currentTagName.push(asciiLower(c));
-      this.originalTagName.push(c);
-      this.tempBuffer.push(c);
+      currentTagName.push(asciiLower(c));
+      originalTagName.push(c);
+      tempBuffer.push(c);
       return false;
     }
 
-    const tagName = this.currentTagName.join("");
-    const isAppropriate = tagName === this.rawtextTagName;
+    const tagName = currentTagName.join("");
+    const isAppropriate = tagName === rawTextTagName;
 
     if (isAppropriate) {
       if (isWhitespace(c)) {
-        this._flushText();
-        this.currentTagKind = Tag.END;
-        this.currentTagAttrs = {};
-        this.state = Tokenizer.BEFORE_ATTRIBUTE_NAME;
+        flushText();
+        currentTagKind = TagKind.End;
+        currentTagAttrs.clear();
+        state = State.BeforeAttributeName;
         return false;
       }
       if (c === "/") {
-        this._flushText();
-        this.currentTagKind = Tag.END;
-        this.currentTagAttrs = {};
-        this.state = Tokenizer.SELF_CLOSING_START_TAG;
+        flushText();
+        currentTagKind = TagKind.End;
+        currentTagAttrs.clear();
+        state = State.SelfClosingStartTag;
         return false;
       }
       if (c === ">") {
-        this._flushText();
-        this._emitToken(new Tag(Tag.END, tagName, {}, false));
-        this.state = Tokenizer.DATA;
-        this.rawtextTagName = null;
-        this.currentTagName.length = 0;
-        this.originalTagName.length = 0;
-        this.tempBuffer.length = 0;
+        flushText();
+        emitToken(createTagToken(TagKind.End, tagName, new Map(), false));
+        state = State.Data;
+        rawTextTagName = undefined;
+        currentTagName = [];
+        originalTagName = [];
+        tempBuffer = [];
         return false;
       }
     }
 
-    this.textBuffer.push("<", "/");
-    for (const ch of this.tempBuffer) this._appendText(ch);
-    this.currentTagName.length = 0;
-    this.originalTagName.length = 0;
-    this.tempBuffer.length = 0;
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
+    textBuffer.push("<", "/");
+    for (const ch of tempBuffer) appendText(ch);
+    currentTagName = [];
+    originalTagName = [];
+    tempBuffer = [];
+    reconsumeCurrent();
+    state = State.ScriptDataEscaped;
     return false;
   }
 
-  _stateScriptDataDoubleEscapeStart() {
-    const c = this._getChar();
+  function stateScriptDataDoubleEscapeStart(): boolean {
+    const c = getChar();
     if (
       c === " " ||
       c === "\t" ||
@@ -2245,129 +2389,134 @@ export class Tokenizer {
       c === "/" ||
       c === ">"
     ) {
-      const temp = this.tempBuffer.join("").toLowerCase();
-      if (temp === "script") this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-      else this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-      this._appendText(c);
+      const temp = tempBuffer.join("").toLowerCase();
+      state = temp === "script" ? State.ScriptDataDoubleEscaped : State.ScriptDataEscaped;
+      appendText(c);
       return false;
     }
     if (c != null && isAsciiAlpha(c)) {
-      this.tempBuffer.push(c);
-      this._appendText(c);
+      tempBuffer.push(c);
+      appendText(c);
       return false;
     }
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
+    reconsumeCurrent();
+    state = State.ScriptDataEscaped;
     return false;
   }
 
-  _stateScriptDataDoubleEscaped() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataDoubleEscaped(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        state = State.ScriptDataDoubleEscapedDash;
+        return false;
+
+      case "<":
+        appendText("<");
+        state = State.ScriptDataDoubleEscapedLessThanSign;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        return false;
+      default:
+        appendText(c);
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_DASH;
-      return false;
-    }
-    if (c === "<") {
-      this._appendText("<");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      return false;
-    }
-    this._appendText(c);
-    return false;
   }
 
-  _stateScriptDataDoubleEscapedDash() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataDoubleEscapedDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        state = State.ScriptDataDoubleEscapedDashDash;
+        return false;
+
+      case "<":
+        appendText("<");
+        state = State.ScriptDataDoubleEscapedLessThanSign;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        state = State.ScriptDataDoubleEscaped;
+        return false;
+      default:
+        appendText(c);
+        state = State.ScriptDataDoubleEscaped;
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_DASH_DASH;
-      return false;
-    }
-    if (c === "<") {
-      this._appendText("<");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-      return false;
-    }
-    this._appendText(c);
-    this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-    return false;
   }
 
-  _stateScriptDataDoubleEscapedDashDash() {
-    const c = this._getChar();
-    if (c == null) {
-      this._flushText();
-      this._emitToken(new EOFToken());
-      return true;
+  function stateScriptDataDoubleEscapedDashDash(): boolean {
+    const c = getChar();
+    switch (c) {
+      case null:
+        flushText();
+        emitToken(eofToken());
+        return true;
+
+      case "-":
+        appendText("-");
+        return false;
+
+      case "<":
+        appendText("<");
+        state = State.ScriptDataDoubleEscapedLessThanSign;
+        return false;
+
+      case ">":
+        appendText(">");
+        state = State.RawText;
+        return false;
+
+      case "\0":
+        emitError(ErrorCode.UnexpectedNullCharacter);
+        appendText("\uFFFD");
+        state = State.ScriptDataDoubleEscaped;
+        return false;
+      default:
+        appendText(c);
+        state = State.ScriptDataDoubleEscaped;
+        return false;
     }
-    if (c === "-") {
-      this._appendText("-");
-      return false;
-    }
-    if (c === "<") {
-      this._appendText("<");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED_LESS_THAN_SIGN;
-      return false;
-    }
-    if (c === ">") {
-      this._appendText(">");
-      this.state = Tokenizer.RAWTEXT;
-      return false;
-    }
-    if (c === "\0") {
-      this._emitError("unexpected-null-character");
-      this._appendText("\ufffd");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-      return false;
-    }
-    this._appendText(c);
-    this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-    return false;
   }
 
-  _stateScriptDataDoubleEscapedLessThanSign() {
-    const c = this._getChar();
+  function stateScriptDataDoubleEscapedLessThanSign(): boolean {
+    const c = getChar();
     if (c === "/") {
-      this.tempBuffer.length = 0;
-      this._appendText("/");
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPE_END;
+      tempBuffer = [];
+      appendText("/");
+      state = State.ScriptDataDoubleEscapeEnd;
       return false;
     }
     if (c != null && isAsciiAlpha(c)) {
-      this.tempBuffer.length = 0;
-      this._reconsumeCurrent();
-      this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPE_START;
+      tempBuffer = [];
+      reconsumeCurrent();
+      state = State.ScriptDataDoubleEscapeStart;
       return false;
     }
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
+    reconsumeCurrent();
+    state = State.ScriptDataDoubleEscaped;
     return false;
   }
 
-  _stateScriptDataDoubleEscapeEnd() {
-    const c = this._getChar();
+  function stateScriptDataDoubleEscapeEnd(): boolean {
+    const c = getChar();
     if (
       c === " " ||
       c === "\t" ||
@@ -2377,19 +2526,30 @@ export class Tokenizer {
       c === "/" ||
       c === ">"
     ) {
-      const temp = this.tempBuffer.join("").toLowerCase();
-      if (temp === "script") this.state = Tokenizer.SCRIPT_DATA_ESCAPED;
-      else this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
-      this._appendText(c);
+      const temp = tempBuffer.join("").toLowerCase();
+      state = temp === "script" ? State.ScriptDataEscaped : State.ScriptDataDoubleEscaped;
+      appendText(c);
       return false;
     }
     if (c != null && isAsciiAlpha(c)) {
-      this.tempBuffer.push(c);
-      this._appendText(c);
+      tempBuffer.push(c);
+      appendText(c);
       return false;
     }
-    this._reconsumeCurrent();
-    this.state = Tokenizer.SCRIPT_DATA_DOUBLE_ESCAPED;
+    reconsumeCurrent();
+    state = State.ScriptDataDoubleEscaped;
     return false;
   }
+
+  return {
+    initialize,
+    step,
+    run,
+    setLastStartTagName(value: string | undefined) {
+      lastStartTagName = value;
+    },
+    get errors() {
+      return errors;
+    },
+  };
 }

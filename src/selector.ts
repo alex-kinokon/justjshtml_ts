@@ -1,137 +1,141 @@
+import { type Node, isElementNode } from "./node.ts";
+
 export class SelectorError extends Error {
-  constructor(message) {
+  constructor(message: string) {
     super(message);
     this.name = "SelectorError";
   }
 }
 
-const TokenType = {
-  TAG: "TAG",
-  ID: "ID",
-  CLASS: "CLASS",
-  UNIVERSAL: "UNIVERSAL",
-  ATTR_START: "ATTR_START",
-  ATTR_END: "ATTR_END",
-  ATTR_OP: "ATTR_OP",
-  STRING: "STRING",
-  COMBINATOR: "COMBINATOR",
-  COMMA: "COMMA",
-  COLON: "COLON",
-  PAREN_OPEN: "PAREN_OPEN",
-  PAREN_CLOSE: "PAREN_CLOSE",
-  EOF: "EOF",
-};
+const enum TokenType {
+  TAG,
+  ID,
+  CLASS,
+  UNIVERSAL,
+  ATTR_START,
+  ATTR_END,
+  ATTR_OP,
+  STRING,
+  COMBINATOR,
+  COMMA,
+  COLON,
+  PAREN_OPEN,
+  PAREN_CLOSE,
+  EOF,
+}
 
 class Token {
-  constructor(type, value = null) {
-    this.type = type;
-    this.value = value;
-  }
+  constructor(
+    readonly type: TokenType,
+    readonly value?: string | undefined
+  ) {}
 
-  toString() {
+  toString(): string {
     return `Token(${this.type}, ${JSON.stringify(this.value)})`;
   }
 }
 
-class SelectorTokenizer {
-  constructor(selector) {
-    this.selector = selector;
-    this.pos = 0;
-    this.length = selector.length;
-  }
+function isNameStart(ch: string): boolean {
+  if (!ch) return false;
+  const code = ch.codePointAt(0) ?? 0;
+  if (code > 127) return true;
+  if (ch === "_" || ch === "-") return true;
+  return (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z");
+}
 
-  _peek(offset = 0) {
-    const pos = this.pos + offset;
-    if (pos < this.length) return this.selector[pos];
+function isNameChar(ch: string): boolean {
+  if (isNameStart(ch)) return true;
+  return ch >= "0" && ch <= "9";
+}
+
+function createSelectorTokenizer(selector: string) {
+  let pos = 0;
+  const { length } = selector;
+
+  function peek(offset = 0): string {
+    const p = pos + offset;
+    if (p < length) return selector[p]!;
     return "";
   }
 
-  _skipWhitespace() {
-    while (this.pos < this.length && " \t\n\r\f".includes(this.selector[this.pos]))
-      this.pos += 1;
+  function skipWhitespace(): void {
+    while (pos < length && " \t\n\r\f".includes(selector[pos]!)) pos += 1;
   }
 
-  _isNameStart(ch) {
-    if (!ch) return false;
-    const code = ch.codePointAt(0) ?? 0;
-    if (code > 127) return true;
-    if (ch === "_" || ch === "-") return true;
-    return (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z");
+  function readName(): string {
+    const start = pos;
+    while (pos < length && isNameChar(selector[pos]!)) {
+      pos += 1;
+    }
+    return selector.slice(start, pos);
   }
 
-  _isNameChar(ch) {
-    if (this._isNameStart(ch)) return true;
-    return ch >= "0" && ch <= "9";
-  }
-
-  _readName() {
-    const start = this.pos;
-    while (this.pos < this.length && this._isNameChar(this.selector[this.pos]))
-      this.pos += 1;
-    return this.selector.slice(start, this.pos);
-  }
-
-  _readString(quote) {
-    this.pos += 1;
-    let start = this.pos;
+  function readString(quote: string): string {
+    pos += 1;
+    let start = pos;
     const parts = [];
 
-    while (this.pos < this.length) {
-      const ch = this.selector[this.pos];
+    while (pos < length) {
+      const ch = selector[pos];
       if (ch === quote) {
-        if (this.pos > start) parts.push(this.selector.slice(start, this.pos));
-        this.pos += 1;
+        if (pos > start) parts.push(selector.slice(start, pos));
+        pos += 1;
         return parts.join("");
       }
       if (ch === "\\") {
-        if (this.pos > start) parts.push(this.selector.slice(start, this.pos));
-        this.pos += 1;
-        if (this.pos < this.length) {
-          parts.push(this.selector[this.pos]);
-          this.pos += 1;
-          start = this.pos;
+        if (pos > start) parts.push(selector.slice(start, pos));
+        pos += 1;
+        if (pos < length) {
+          parts.push(selector[pos]);
+          pos += 1;
+          start = pos;
         } else {
-          start = this.pos;
+          start = pos;
         }
       } else {
-        this.pos += 1;
+        pos += 1;
       }
     }
 
     throw new SelectorError(
-      `Unterminated string in selector: ${JSON.stringify(this.selector)}`
+      `Unterminated string in selector: ${JSON.stringify(selector)}`
     );
   }
 
-  _readUnquotedAttrValue() {
-    const start = this.pos;
-    while (this.pos < this.length) {
-      const ch = this.selector[this.pos];
+  function readUnquotedAttrValue(): string {
+    const start = pos;
+    while (pos < length) {
+      const ch = selector[pos]!;
       if (" \t\n\r\f]".includes(ch)) break;
-      this.pos += 1;
+      pos += 1;
     }
-    return this.selector.slice(start, this.pos);
+    return selector.slice(start, pos);
   }
 
-  tokenize() {
-    const tokens = [];
+  return (): Token[] => {
+    const tokens: Token[] = [];
     let pendingWhitespace = false;
 
-    while (this.pos < this.length) {
-      const ch = this.selector[this.pos];
+    while (pos < length) {
+      const ch = selector[pos]!;
+      switch (ch) {
+        case " ":
+        case "\t":
+        case "\n":
+        case "\r":
+        case "\f":
+          pendingWhitespace = true;
+          skipWhitespace();
+          continue;
 
-      if (" \t\n\r\f".includes(ch)) {
-        pendingWhitespace = true;
-        this._skipWhitespace();
-        continue;
-      }
-
-      if (">+~".includes(ch)) {
-        pendingWhitespace = false;
-        this.pos += 1;
-        this._skipWhitespace();
-        tokens.push(new Token(TokenType.COMBINATOR, ch));
-        continue;
+        case ">":
+        case "+":
+        case "~":
+          pendingWhitespace = false;
+          pos += 1;
+          skipWhitespace();
+          tokens.push(new Token(TokenType.COMBINATOR, ch));
+          continue;
       }
 
       if (pendingWhitespace && tokens.length && ch !== ",") {
@@ -139,229 +143,257 @@ class SelectorTokenizer {
       }
       pendingWhitespace = false;
 
-      if (ch === "*") {
-        this.pos += 1;
-        tokens.push(new Token(TokenType.UNIVERSAL));
-        continue;
-      }
+      switch (ch) {
+        case "*":
+          pos += 1;
+          tokens.push(new Token(TokenType.UNIVERSAL));
+          continue;
 
-      if (ch === "#") {
-        this.pos += 1;
-        const name = this._readName();
-        if (!name)
-          throw new SelectorError(`Expected identifier after # at position ${this.pos}`);
-        tokens.push(new Token(TokenType.ID, name));
-        continue;
-      }
+        case "#": {
+          pos += 1;
+          const name = readName();
+          if (!name) {
+            throw new SelectorError(`Expected identifier after # at position ${pos}`);
+          }
+          tokens.push(new Token(TokenType.ID, name));
+          continue;
+        }
 
-      if (ch === ".") {
-        this.pos += 1;
-        const name = this._readName();
-        if (!name)
-          throw new SelectorError(`Expected identifier after . at position ${this.pos}`);
-        tokens.push(new Token(TokenType.CLASS, name));
-        continue;
-      }
+        case ".": {
+          pos += 1;
+          const name = readName();
+          if (!name) {
+            throw new SelectorError(`Expected identifier after . at position ${pos}`);
+          }
+          tokens.push(new Token(TokenType.CLASS, name));
+          continue;
+        }
 
-      if (ch === "[") {
-        this.pos += 1;
-        tokens.push(new Token(TokenType.ATTR_START));
-        this._skipWhitespace();
+        case "[": {
+          pos += 1;
+          tokens.push(new Token(TokenType.ATTR_START));
+          skipWhitespace();
 
-        const attrName = this._readName();
-        if (!attrName)
-          throw new SelectorError(`Expected attribute name at position ${this.pos}`);
-        tokens.push(new Token(TokenType.TAG, attrName));
-        this._skipWhitespace();
+          const attrName = readName();
+          if (!attrName) {
+            throw new SelectorError(`Expected attribute name at position ${pos}`);
+          }
+          tokens.push(new Token(TokenType.TAG, attrName));
+          skipWhitespace();
 
-        const ch2 = this._peek();
-        if (ch2 === "]") {
-          this.pos += 1;
+          const ch2 = peek();
+          if (ch2 === "]") {
+            pos += 1;
+            tokens.push(new Token(TokenType.ATTR_END));
+            continue;
+          }
+
+          if (ch2 === "=") {
+            pos += 1;
+            tokens.push(new Token(TokenType.ATTR_OP, "="));
+          } else if ("~|^$*".includes(ch2)) {
+            const opChar = ch2;
+            pos += 1;
+            if (peek() !== "=") {
+              throw new SelectorError(`Expected = after ${opChar} at position ${pos}`);
+            }
+            pos += 1;
+            tokens.push(new Token(TokenType.ATTR_OP, `${opChar}=`));
+          } else {
+            throw new SelectorError(
+              `Unexpected character in attribute selector: ${JSON.stringify(ch2)}`
+            );
+          }
+
+          skipWhitespace();
+
+          const ch3 = peek();
+          const value =
+            ch3 === '"' || ch3 === "'" ? readString(ch3) : readUnquotedAttrValue();
+          tokens.push(new Token(TokenType.STRING, value));
+
+          skipWhitespace();
+          if (peek() !== "]") {
+            throw new SelectorError(`Expected ] at position ${pos}`);
+          }
+          pos += 1;
           tokens.push(new Token(TokenType.ATTR_END));
           continue;
         }
 
-        if (ch2 === "=") {
-          this.pos += 1;
-          tokens.push(new Token(TokenType.ATTR_OP, "="));
-        } else if ("~|^$*".includes(ch2)) {
-          const opChar = ch2;
-          this.pos += 1;
-          if (this._peek() !== "=")
-            throw new SelectorError(`Expected = after ${opChar} at position ${this.pos}`);
-          this.pos += 1;
-          tokens.push(new Token(TokenType.ATTR_OP, `${opChar}=`));
-        } else {
-          throw new SelectorError(
-            `Unexpected character in attribute selector: ${JSON.stringify(ch2)}`
-          );
-        }
+        case ",":
+          pos += 1;
+          skipWhitespace();
+          tokens.push(new Token(TokenType.COMMA));
+          continue;
 
-        this._skipWhitespace();
+        case ":": {
+          pos += 1;
+          tokens.push(new Token(TokenType.COLON));
 
-        const ch3 = this._peek();
-        let value;
-        if (ch3 === '"' || ch3 === "'") value = this._readString(ch3);
-        else value = this._readUnquotedAttrValue();
-        tokens.push(new Token(TokenType.STRING, value));
+          const name = readName();
+          if (!name) {
+            throw new SelectorError(
+              `Expected pseudo-class name after : at position ${pos}`
+            );
+          }
+          tokens.push(new Token(TokenType.TAG, name));
 
-        this._skipWhitespace();
-        if (this._peek() !== "]")
-          throw new SelectorError(`Expected ] at position ${this.pos}`);
-        this.pos += 1;
-        tokens.push(new Token(TokenType.ATTR_END));
-        continue;
-      }
+          if (peek() === "(") {
+            pos += 1;
+            tokens.push(new Token(TokenType.PAREN_OPEN));
+            skipWhitespace();
 
-      if (ch === ",") {
-        this.pos += 1;
-        this._skipWhitespace();
-        tokens.push(new Token(TokenType.COMMA));
-        continue;
-      }
+            let parenDepth = 1;
+            const argStart = pos;
+            while (pos < length && parenDepth > 0) {
+              const c = selector[pos];
+              if (c === "(") {
+                parenDepth += 1;
+              } else if (c === ")") {
+                parenDepth -= 1;
+              }
+              if (parenDepth > 0) pos += 1;
+            }
 
-      if (ch === ":") {
-        this.pos += 1;
-        tokens.push(new Token(TokenType.COLON));
+            const arg = selector.slice(argStart, pos).trim();
+            if (arg) {
+              tokens.push(new Token(TokenType.STRING, arg));
+            }
 
-        const name = this._readName();
-        if (!name)
-          throw new SelectorError(
-            `Expected pseudo-class name after : at position ${this.pos}`
-          );
-        tokens.push(new Token(TokenType.TAG, name));
-
-        if (this._peek() === "(") {
-          this.pos += 1;
-          tokens.push(new Token(TokenType.PAREN_OPEN));
-          this._skipWhitespace();
-
-          let parenDepth = 1;
-          const argStart = this.pos;
-          while (this.pos < this.length && parenDepth > 0) {
-            const c = this.selector[this.pos];
-            if (c === "(") parenDepth += 1;
-            else if (c === ")") parenDepth -= 1;
-            if (parenDepth > 0) this.pos += 1;
+            if (peek() !== ")") {
+              throw new SelectorError(`Expected ) at position ${pos}`);
+            }
+            pos += 1;
+            tokens.push(new Token(TokenType.PAREN_CLOSE));
           }
 
-          const arg = this.selector.slice(argStart, this.pos).trim();
-          if (arg) tokens.push(new Token(TokenType.STRING, arg));
-
-          if (this._peek() !== ")")
-            throw new SelectorError(`Expected ) at position ${this.pos}`);
-          this.pos += 1;
-          tokens.push(new Token(TokenType.PAREN_CLOSE));
+          continue;
         }
-
-        continue;
       }
 
-      if (this._isNameStart(ch)) {
-        const name = this._readName().toLowerCase();
+      if (isNameStart(ch)) {
+        const name = readName().toLowerCase();
         tokens.push(new Token(TokenType.TAG, name));
         continue;
       }
 
       throw new SelectorError(
-        `Unexpected character ${JSON.stringify(ch)} at position ${this.pos}`
+        `Unexpected character ${JSON.stringify(ch)} at position ${pos}`
       );
     }
 
     tokens.push(new Token(TokenType.EOF));
     return tokens;
-  }
+  };
 }
 
-class SimpleSelector {
-  static TYPE_TAG = "tag";
-  static TYPE_ID = "id";
-  static TYPE_CLASS = "class";
-  static TYPE_UNIVERSAL = "universal";
-  static TYPE_ATTR = "attr";
-  static TYPE_PSEUDO = "pseudo";
-
-  constructor(
-    selectorType,
-    { name = null, operator = null, value = null, arg = null } = {}
-  ) {
-    this.type = selectorType;
-    this.name = name;
-    this.operator = operator;
-    this.value = value;
-    this.arg = arg;
-  }
+const enum SelectorType {
+  Tag,
+  Id,
+  Class,
+  Universal,
+  Attribute,
+  Pseudo,
+  Compound,
+  Complex,
 }
 
-class CompoundSelector {
-  constructor(selectors = []) {
-    this.selectors = selectors;
-  }
+type SimpleSelector =
+  | TagSelector
+  | IdSelector
+  | ClassSelector
+  | UniversalSelector
+  | AttributeSelector
+  | PseudoSelector;
+
+interface TagSelector {
+  readonly kind: SelectorType.Tag;
+  readonly name: string;
 }
 
-class ComplexSelector {
-  constructor() {
-    this.parts = [];
-  }
+interface IdSelector {
+  readonly kind: SelectorType.Id;
+  readonly name: string;
 }
 
-class SelectorList {
-  constructor(selectors = []) {
-    this.selectors = selectors;
-  }
+interface ClassSelector {
+  readonly kind: SelectorType.Class;
+  readonly name: string;
 }
 
-class SelectorParser {
-  constructor(tokens) {
-    this.tokens = tokens;
-    this.pos = 0;
-  }
+interface UniversalSelector {
+  readonly kind: SelectorType.Universal;
+}
 
-  _peek() {
-    if (this.pos < this.tokens.length) return this.tokens[this.pos];
+interface AttributeSelector {
+  readonly kind: SelectorType.Attribute;
+  readonly name: string;
+  readonly operator: string | undefined;
+  readonly value: string | undefined;
+}
+
+function createAttributeSelector(
+  name: string,
+  operator: string | undefined,
+  value: string | undefined
+): AttributeSelector {
+  return { kind: SelectorType.Attribute, name, operator, value };
+}
+
+interface PseudoSelector {
+  readonly kind: SelectorType.Pseudo;
+  readonly name: string;
+  readonly arg: string | undefined;
+}
+
+export interface CompoundSelector {
+  readonly kind: SelectorType.Compound;
+  readonly selectors: readonly SimpleSelector[];
+}
+
+export interface ComplexSelector {
+  readonly kind: SelectorType.Complex;
+  readonly parts: Array<[string | undefined, CompoundSelector]>;
+}
+
+export type SelectorList = ComplexSelector[];
+
+function createSelectorParser(tokens: Token[]) {
+  let pos = 0;
+
+  function peek(): Token {
+    if (pos < tokens.length) return tokens[pos]!;
     return new Token(TokenType.EOF);
   }
 
-  _advance() {
-    const token = this._peek();
-    this.pos += 1;
+  function advance(): Token {
+    const token = peek();
+    pos += 1;
     return token;
   }
 
-  _expect(tokenType) {
-    const token = this._peek();
-    if (token.type !== tokenType)
+  function expect(tokenType: TokenType): Token {
+    const token = peek();
+    if (token.type !== tokenType) {
       throw new SelectorError(`Expected ${tokenType}, got ${token.type}`);
-    return this._advance();
-  }
-
-  parse() {
-    const selectors = [];
-    selectors.push(this._parseComplexSelector());
-
-    while (this._peek().type === TokenType.COMMA) {
-      this._advance();
-      const selector = this._parseComplexSelector();
-      if (selector) selectors.push(selector);
     }
-
-    if (this._peek().type !== TokenType.EOF)
-      throw new SelectorError(`Unexpected token: ${this._peek()}`);
-
-    if (selectors.length === 1) return selectors[0];
-    return new SelectorList(selectors);
+    return advance();
   }
 
-  _parseComplexSelector() {
-    const complexSel = new ComplexSelector();
+  function parseComplexSelector(): ComplexSelector | undefined {
+    const complexSel: ComplexSelector = {
+      kind: SelectorType.Complex,
+      parts: [],
+    };
 
-    const compound = this._parseCompoundSelector();
-    if (!compound) return null;
-    complexSel.parts.push([null, compound]);
+    const compound = parseCompoundSelector();
+    if (!compound) return;
+    complexSel.parts.push([undefined, compound]);
 
-    while (this._peek().type === TokenType.COMBINATOR) {
-      const combinator = this._advance().value;
-      const nextCompound = this._parseCompoundSelector();
+    while (peek().type === TokenType.COMBINATOR) {
+      const combinator = advance().value;
+      const nextCompound = parseCompoundSelector();
       if (!nextCompound) throw new SelectorError("Expected selector after combinator");
       complexSel.parts.push([combinator, nextCompound]);
     }
@@ -369,419 +401,479 @@ class SelectorParser {
     return complexSel;
   }
 
-  _parseCompoundSelector() {
-    const simpleSelectors = [];
+  function parseCompoundSelector(): CompoundSelector | undefined {
+    const simpleSelectors: SimpleSelector[] = [];
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const token = this._peek();
+    out: while (true) {
+      const token = peek();
 
-      if (token.type === TokenType.TAG) {
-        this._advance();
-        simpleSelectors.push(
-          new SimpleSelector(SimpleSelector.TYPE_TAG, { name: token.value })
-        );
-      } else if (token.type === TokenType.UNIVERSAL) {
-        this._advance();
-        simpleSelectors.push(new SimpleSelector(SimpleSelector.TYPE_UNIVERSAL));
-      } else if (token.type === TokenType.ID) {
-        this._advance();
-        simpleSelectors.push(
-          new SimpleSelector(SimpleSelector.TYPE_ID, { name: token.value })
-        );
-      } else if (token.type === TokenType.CLASS) {
-        this._advance();
-        simpleSelectors.push(
-          new SimpleSelector(SimpleSelector.TYPE_CLASS, { name: token.value })
-        );
-      } else if (token.type === TokenType.ATTR_START) {
-        simpleSelectors.push(this._parseAttributeSelector());
-      } else if (token.type === TokenType.COLON) {
-        simpleSelectors.push(this._parsePseudoSelector());
-      } else {
-        break;
+      switch (token.type) {
+        case TokenType.TAG:
+          advance();
+          simpleSelectors.push({
+            kind: SelectorType.Tag,
+            name: token.value ?? "",
+          });
+          break;
+        case TokenType.UNIVERSAL:
+          advance();
+          simpleSelectors.push({
+            kind: SelectorType.Universal,
+          });
+          break;
+        case TokenType.ID:
+          advance();
+          simpleSelectors.push({
+            kind: SelectorType.Id,
+            name: token.value ?? "",
+          });
+          break;
+        case TokenType.CLASS:
+          advance();
+          simpleSelectors.push({
+            kind: SelectorType.Class,
+            name: token.value ?? "",
+          });
+          break;
+        case TokenType.ATTR_START:
+          simpleSelectors.push(parseAttributeSelector());
+          break;
+        case TokenType.COLON:
+          simpleSelectors.push(parsePseudoSelector());
+          break;
+        default:
+          break out;
       }
     }
 
-    if (!simpleSelectors.length) return null;
-    return new CompoundSelector(simpleSelectors);
+    if (!simpleSelectors.length) return;
+
+    return {
+      kind: SelectorType.Compound,
+      selectors: simpleSelectors,
+    };
   }
 
-  _parseAttributeSelector() {
-    this._expect(TokenType.ATTR_START);
-    const attrName = this._expect(TokenType.TAG).value;
+  function parseAttributeSelector(): AttributeSelector {
+    expect(TokenType.ATTR_START);
+    const name = expect(TokenType.TAG).value ?? "";
 
-    const token = this._peek();
+    const token = peek();
     if (token.type === TokenType.ATTR_END) {
-      this._advance();
-      return new SimpleSelector(SimpleSelector.TYPE_ATTR, { name: attrName });
+      advance();
+      return createAttributeSelector(name, undefined, undefined);
     }
 
-    const operator = this._expect(TokenType.ATTR_OP).value;
-    const value = this._expect(TokenType.STRING).value;
-    this._expect(TokenType.ATTR_END);
+    const operator = expect(TokenType.ATTR_OP).value;
+    const value = expect(TokenType.STRING).value;
+    expect(TokenType.ATTR_END);
 
-    return new SimpleSelector(SimpleSelector.TYPE_ATTR, {
-      name: attrName,
-      operator,
-      value,
-    });
+    return createAttributeSelector(name, operator, value);
   }
 
-  _parsePseudoSelector() {
-    this._expect(TokenType.COLON);
-    const name = this._expect(TokenType.TAG).value;
+  function parsePseudoSelector(): PseudoSelector {
+    expect(TokenType.COLON);
+    const name = expect(TokenType.TAG).value ?? "";
+    let arg: string | undefined;
 
-    if (this._peek().type === TokenType.PAREN_OPEN) {
-      this._advance();
-      let arg = null;
-      if (this._peek().type === TokenType.STRING) arg = this._advance().value;
-      this._expect(TokenType.PAREN_CLOSE);
-      return new SimpleSelector(SimpleSelector.TYPE_PSEUDO, { name, arg });
+    if (peek().type === TokenType.PAREN_OPEN) {
+      advance();
+      if (peek().type === TokenType.STRING) {
+        arg = advance().value;
+      }
+      expect(TokenType.PAREN_CLOSE);
     }
 
-    return new SimpleSelector(SimpleSelector.TYPE_PSEUDO, { name });
+    return { kind: SelectorType.Pseudo, name, arg };
+  }
+
+  return (): ComplexSelector | SelectorList => {
+    const selectors: ComplexSelector[] = [parseComplexSelector()!];
+
+    while (peek().type === TokenType.COMMA) {
+      advance();
+      const selector = parseComplexSelector();
+      if (selector) selectors.push(selector);
+    }
+
+    if (peek().type !== TokenType.EOF) {
+      throw new SelectorError(`Unexpected token: ${peek().toString()}`);
+    }
+
+    if (selectors.length === 1) {
+      return selectors[0]!;
+    }
+    return selectors;
+  };
+}
+
+function parseSelector(selectorString: string): ComplexSelector | SelectorList {
+  if (!selectorString || !selectorString.trim()) {
+    throw new SelectorError("Empty selector");
+  }
+
+  const tokenizer = createSelectorTokenizer(selectorString.trim());
+  const tokens = tokenizer();
+  const parse = createSelectorParser(tokens);
+  return parse();
+}
+
+function matchesSelector(
+  node: Node,
+  sel: ComplexSelector | CompoundSelector | SimpleSelector | SelectorList
+): boolean {
+  if (Array.isArray(sel)) {
+    return sel.some(sel => matchesSelector(node, sel));
+  }
+  switch (sel.kind) {
+    case SelectorType.Complex:
+      return matchesComplex(node, sel);
+    case SelectorType.Compound:
+      return matchesCompound(node, sel);
+    default:
+      return matchesSimple(node, sel);
   }
 }
 
-function isElementNode(node) {
-  return (
-    node != null &&
-    typeof node.name === "string" &&
-    !node.name.startsWith("#") &&
-    node.name !== "!doctype"
-  );
-}
+function matchesComplex(node: Node, selector: ComplexSelector): boolean {
+  const { parts } = selector;
+  if (!parts.length) return false;
 
-class SelectorMatcher {
-  matches(node, selector) {
-    if (selector instanceof SelectorList)
-      return selector.selectors.some(sel => this.matches(node, sel));
-    if (selector instanceof ComplexSelector) return this._matchesComplex(node, selector);
-    if (selector instanceof CompoundSelector)
-      return this._matchesCompound(node, selector);
-    if (selector instanceof SimpleSelector) return this._matchesSimple(node, selector);
-    return false;
-  }
+  const [, compound] = parts.at(-1)!;
+  if (!matchesCompound(node, compound)) return false;
 
-  _matchesComplex(node, selector) {
-    const parts = selector.parts;
-    if (!parts.length) return false;
+  let current = node;
+  for (let i = parts.length - 2; i >= 0; i -= 1) {
+    const [combinator] = parts[i + 1]!;
+    const [, prevCompound] = parts[i]!;
 
-    const [, compound] = parts[parts.length - 1];
-    if (!this._matchesCompound(node, compound)) return false;
-
-    let current = node;
-    for (let i = parts.length - 2; i >= 0; i -= 1) {
-      const [combinator] = parts[i + 1];
-      const [, prevCompound] = parts[i];
-
-      if (combinator === " ") {
+    switch (combinator) {
+      case " ": {
         let found = false;
-        let ancestor = current.parent;
+        let ancestor = current.parentNode;
         while (ancestor) {
-          if (this._matchesCompound(ancestor, prevCompound)) {
+          if (matchesCompound(ancestor, prevCompound)) {
             current = ancestor;
             found = true;
             break;
           }
-          ancestor = ancestor.parent;
+          ancestor = ancestor.parentNode;
         }
         if (!found) return false;
-      } else if (combinator === ">") {
-        const parent = current.parent;
-        if (!parent || !this._matchesCompound(parent, prevCompound)) return false;
+
+        break;
+      }
+
+      case ">": {
+        const parent = current.parentNode;
+        if (!parent || !matchesCompound(parent, prevCompound)) return false;
         current = parent;
-      } else if (combinator === "+") {
-        const sibling = this._getPreviousSibling(current);
-        if (!sibling || !this._matchesCompound(sibling, prevCompound)) return false;
+
+        break;
+      }
+
+      case "+": {
+        const sibling = current.previousSibling;
+        if (!sibling || !matchesCompound(sibling, prevCompound)) return false;
         current = sibling;
-      } else {
+
+        break;
+      }
+
+      default: {
         let found = false;
-        let sibling = this._getPreviousSibling(current);
+        let sibling = current.previousSibling;
         while (sibling) {
-          if (this._matchesCompound(sibling, prevCompound)) {
+          if (matchesCompound(sibling, prevCompound)) {
             current = sibling;
             found = true;
             break;
           }
-          sibling = this._getPreviousSibling(sibling);
+          sibling = sibling.previousSibling;
         }
         if (!found) return false;
       }
     }
-
-    return true;
   }
 
-  _matchesCompound(node, compound) {
-    return compound.selectors.every(simple => this._matchesSimple(node, simple));
+  return true;
+}
+
+function matchesCompound(node: Node, compound: CompoundSelector): boolean {
+  return compound.selectors.every(simple => matchesSimple(node, simple));
+}
+
+function matchesSimple(node: Node, selector: SimpleSelector): boolean {
+  if (!isElementNode(node)) {
+    return false;
   }
 
-  _matchesSimple(node, selector) {
-    if (!isElementNode(node)) return false;
+  switch (selector.kind) {
+    case SelectorType.Universal:
+      return true;
 
-    if (selector.type === SimpleSelector.TYPE_UNIVERSAL) return true;
+    case SelectorType.Tag:
+      return node.name.toLowerCase() === selector.name.toLowerCase();
 
-    if (selector.type === SimpleSelector.TYPE_TAG)
-      return node.name.toLowerCase() === String(selector.name).toLowerCase();
+    case SelectorType.Id:
+      return node.attrs.get("id") === selector.name;
 
-    if (selector.type === SimpleSelector.TYPE_ID)
-      return (node.attrs?.id ?? "") === selector.name;
-
-    if (selector.type === SimpleSelector.TYPE_CLASS) {
-      const classAttr = node.attrs?.class ?? "";
-      const classes = classAttr ? String(classAttr).split(/\s+/).filter(Boolean) : [];
+    case SelectorType.Class: {
+      const classAttr = node.attrs.get("class") ?? "";
+      const classes = classAttr ? classAttr.split(/\s+/).filter(Boolean) : [];
       return classes.includes(selector.name);
     }
+    case SelectorType.Attribute:
+      return matchesAttribute(node, selector);
 
-    if (selector.type === SimpleSelector.TYPE_ATTR)
-      return this._matchesAttribute(node, selector);
+    case SelectorType.Pseudo:
+      return matchesPseudo(node, selector);
 
-    if (selector.type === SimpleSelector.TYPE_PSEUDO)
-      return this._matchesPseudo(node, selector);
+    default:
+      return false;
+  }
+}
 
-    return false;
+function matchesAttribute(node: Node, selector: AttributeSelector): boolean {
+  const attrName = selector.name.toLowerCase();
+
+  let found = false;
+  let attrValue: string | undefined;
+  for (const [name, value] of node.attrs) {
+    if (name.toLowerCase() === attrName) {
+      found = true;
+      attrValue = value ?? undefined;
+      break;
+    }
   }
 
-  _matchesAttribute(node, selector) {
-    const attrs = node.attrs || {};
-    const attrName = String(selector.name || "").toLowerCase();
+  if (!found) return false;
 
-    let found = false;
-    let attrValue = null;
-    for (const [name, value] of Object.entries(attrs)) {
-      if (name.toLowerCase() === attrName) {
-        found = true;
-        attrValue = value;
-        break;
-      }
-    }
-    if (!found) return false;
+  const { operator: op, value } = selector;
+  if (op == null) return true;
+  if (value == null) return false;
+  const s = attrValue ?? "";
 
-    if (selector.operator == null) return true;
-
-    const op = selector.operator;
-    const value = selector.value;
-    const s = attrValue == null ? "" : String(attrValue);
-
-    if (op === "=") return s === value;
-    if (op === "~=") return (s ? s.split(/\s+/).filter(Boolean) : []).includes(value);
-    if (op === "|=") return s === value || (value ? s.startsWith(`${value}-`) : false);
-    if (op === "^=") return value ? s.startsWith(value) : false;
-    if (op === "$=") return value ? s.endsWith(value) : false;
-    if (op === "*=") return value ? s.includes(value) : false;
-
-    return false;
+  switch (op) {
+    case "=":
+      return s === value;
+    case "~=":
+      return (s ? s.split(/\s+/).filter(Boolean) : []).includes(value);
+    case "|=":
+      return s === value || (value ? s.startsWith(`${value}-`) : false);
+    case "^=":
+      return value !== "" && s.startsWith(value);
+    case "$=":
+      return value !== "" && s.endsWith(value);
+    case "*=":
+      return value !== "" && s.includes(value);
   }
 
-  _matchesPseudo(node, selector) {
-    const name = String(selector.name || "").toLowerCase();
+  return false;
+}
 
-    if (name === "first-child") return this._isFirstChild(node);
-    if (name === "last-child") return this._isLastChild(node);
-    if (name === "nth-child") return this._matchesNthChild(node, selector.arg);
+function matchesPseudo(node: Node, selector: PseudoSelector): boolean {
+  const name = selector.name.toLowerCase();
+  switch (name) {
+    case "first-child":
+      return isFirstChild(node);
 
-    if (name === "not") {
-      if (!selector.arg) return true;
-      const inner = parseSelector(selector.arg);
-      return !this.matches(node, inner);
-    }
+    case "last-child":
+      return isLastChild(node);
 
-    if (name === "only-child") return this._isFirstChild(node) && this._isLastChild(node);
+    case "nth-child":
+      return matchesNthChild(node, selector.arg);
 
-    if (name === "empty") {
-      const children = node.children || [];
-      for (const child of children) {
-        if (child?.name === "#text") {
-          if (child.data && String(child.data).trim()) return false;
+    case "not":
+      return !selector.arg || !matchesSelector(node, parseSelector(selector.arg));
+
+    case "only-child":
+      return isFirstChild(node) && isLastChild(node);
+
+    case "empty":
+      for (const child of node.childNodes) {
+        if (child.name === "#text") {
+          if (typeof child.data === "string" && child.data.trim()) {
+            return false;
+          }
         } else if (isElementNode(child)) {
           return false;
         }
       }
       return true;
-    }
 
-    if (name === "root") {
-      const parent = node.parent;
+    case "root": {
+      const parent = node.parentNode;
       return (
         parent != null &&
         (parent.name === "#document" || parent.name === "#document-fragment")
       );
     }
 
-    if (name === "first-of-type") return this._isFirstOfType(node);
-    if (name === "last-of-type") return this._isLastOfType(node);
-    if (name === "nth-of-type") return this._matchesNthOfType(node, selector.arg);
-    if (name === "only-of-type")
-      return this._isFirstOfType(node) && this._isLastOfType(node);
-
-    throw new SelectorError(`Unsupported pseudo-class: :${name}`);
+    case "first-of-type":
+      return isFirstOfType(node);
+    case "last-of-type":
+      return isLastOfType(node);
+    case "nth-of-type":
+      return matchesNthOfType(node, selector.arg);
+    case "only-of-type":
+      return isFirstOfType(node) && isLastOfType(node);
+    default:
+      throw new SelectorError(`Unsupported pseudo-class: :${name}`);
   }
+}
 
-  _getElementChildren(parent) {
-    if (!parent || !Array.isArray(parent.children) || !parent.children.length) return [];
-    return parent.children.filter(c => isElementNode(c));
-  }
+function isFirstChild(node: Node): boolean {
+  const { parentNode: parent } = node;
+  if (!parent) return false;
+  const elements = parent.children;
+  return elements.length ? elements[0] === node : false;
+}
 
-  _getPreviousSibling(node) {
-    const parent = node.parent;
-    if (!parent || !Array.isArray(parent.children)) return null;
+function isLastChild(node: Node): boolean {
+  const { parentNode: parent } = node;
+  if (!parent) return false;
+  const elements = parent.children;
+  return elements.length ? elements.at(-1) === node : false;
+}
 
-    let prev = null;
-    for (const child of parent.children) {
-      if (child === node) return prev;
-      if (isElementNode(child)) prev = child;
+function isFirstOfType(node: Node): boolean {
+  const { name, parentNode: parent } = node;
+  if (!parent) return false;
+  const nodeName = name.toLowerCase();
+  for (const child of parent.children) {
+    if (child.name.toLowerCase() === nodeName) {
+      return child === node;
     }
-    return null;
   }
+  return false;
+}
 
-  _isFirstChild(node) {
-    const parent = node.parent;
-    if (!parent) return false;
-    const elements = this._getElementChildren(parent);
-    return elements.length ? elements[0] === node : false;
-  }
-
-  _isLastChild(node) {
-    const parent = node.parent;
-    if (!parent) return false;
-    const elements = this._getElementChildren(parent);
-    return elements.length ? elements[elements.length - 1] === node : false;
-  }
-
-  _isFirstOfType(node) {
-    const parent = node.parent;
-    if (!parent) return false;
-    const nodeName = node.name.toLowerCase();
-    for (const child of this._getElementChildren(parent)) {
-      if (child.name.toLowerCase() === nodeName) return child === node;
+function isLastOfType(node: Node): boolean {
+  const { name, parentNode: parent } = node;
+  if (!parent) return false;
+  const nodeName = name.toLowerCase();
+  let lastOfType: Node | undefined;
+  for (const child of parent.children) {
+    if (child.name.toLowerCase() === nodeName) {
+      lastOfType = child;
     }
-    return false;
   }
+  return lastOfType === node;
+}
 
-  _isLastOfType(node) {
-    const parent = node.parent;
-    if (!parent) return false;
-    const nodeName = node.name.toLowerCase();
-    let lastOfType = null;
-    for (const child of this._getElementChildren(parent)) {
-      if (child.name.toLowerCase() === nodeName) lastOfType = child;
-    }
-    return lastOfType === node;
-  }
+function parseNthExpression(expr?: string): [number, number] | undefined {
+  if (!expr) return;
 
-  _parseNthExpression(expr) {
-    if (!expr) return null;
+  let s = expr.trim().toLowerCase();
+  if (s === "odd") return [2, 1];
+  if (s === "even") return [2, 0];
 
-    let s = String(expr).trim().toLowerCase();
-    if (s === "odd") return [2, 1];
-    if (s === "even") return [2, 0];
+  s = s.replaceAll(" ", "");
 
-    s = s.replaceAll(" ", "");
+  let a = 0;
+  let b = 0;
 
-    let a = 0;
-    let b = 0;
+  if (s.includes("n")) {
+    const parts = s.split("n");
+    const aPart = parts[0]!;
+    const bPart = parts.length > 1 ? parts[1] : "";
 
-    if (s.includes("n")) {
-      const parts = s.split("n");
-      const aPart = parts[0];
-      const bPart = parts.length > 1 ? parts[1] : "";
-
-      if (aPart === "" || aPart === "+") a = 1;
-      else if (aPart === "-") a = -1;
-      else {
-        a = Number.parseInt(aPart, 10);
-        if (Number.isNaN(a)) return null;
-      }
-
-      if (bPart) {
-        b = Number.parseInt(bPart, 10);
-        if (Number.isNaN(b)) return null;
-      }
-    } else {
-      b = Number.parseInt(s, 10);
-      if (Number.isNaN(b)) return null;
+    if (aPart === "" || aPart === "+") a = 1;
+    else if (aPart === "-") a = -1;
+    else {
+      a = Number.parseInt(aPart, 10);
+      if (Number.isNaN(a)) return;
     }
 
-    return [a, b];
-  }
-
-  _matchesNth(index, a, b) {
-    if (a === 0) return index === b;
-    const diff = index - b;
-    if (a > 0) return diff >= 0 && diff % a === 0;
-    return diff <= 0 && diff % a === 0;
-  }
-
-  _matchesNthChild(node, arg) {
-    const parent = node.parent;
-    if (!parent) return false;
-
-    const parsed = this._parseNthExpression(arg);
-    if (parsed == null) return false;
-    const [a, b] = parsed;
-
-    const elements = this._getElementChildren(parent);
-    for (let i = 0; i < elements.length; i += 1) {
-      if (elements[i] === node) return this._matchesNth(i + 1, a, b);
+    if (bPart) {
+      b = Number.parseInt(bPart, 10);
+      if (Number.isNaN(b)) return;
     }
-    return false;
+  } else {
+    b = Number.parseInt(s, 10);
+    if (Number.isNaN(b)) return;
   }
 
-  _matchesNthOfType(node, arg) {
-    const parent = node.parent;
-    if (!parent) return false;
+  return [a, b];
+}
 
-    const parsed = this._parseNthExpression(arg);
-    if (parsed == null) return false;
-    const [a, b] = parsed;
+function matchesNth(index: number, a: number, b: number): boolean {
+  if (a === 0) return index === b;
+  const diff = index - b;
+  if (a > 0) return diff >= 0 && diff % a === 0;
+  return diff <= 0 && diff % a === 0;
+}
 
-    const nodeName = node.name.toLowerCase();
-    const elements = this._getElementChildren(parent);
-    let typeIndex = 0;
-    for (const child of elements) {
-      if (child.name.toLowerCase() === nodeName) {
-        typeIndex += 1;
-        if (child === node) return this._matchesNth(typeIndex, a, b);
+function matchesNthChild(node: Node, arg?: string): boolean {
+  const { parentNode: parent } = node;
+  if (!parent) return false;
+
+  const parsed = parseNthExpression(arg);
+  if (parsed == null) return false;
+  const [a, b] = parsed;
+
+  for (const [i, element] of parent.children.entries()) {
+    if (element === node) {
+      return matchesNth(i + 1, a, b);
+    }
+  }
+  return false;
+}
+
+function matchesNthOfType(node: Node, arg?: string): boolean {
+  const { name, parentNode: parent } = node;
+  if (!parent) return false;
+
+  const parsed = parseNthExpression(arg);
+  if (parsed == null) return false;
+  const [a, b] = parsed;
+
+  const nodeName = name.toLowerCase();
+  let typeIndex = 0;
+  for (const child of parent.children) {
+    if (child.name.toLowerCase() === nodeName) {
+      typeIndex += 1;
+      if (child === node) {
+        return matchesNth(typeIndex, a, b);
       }
     }
-    return false;
+  }
+  return false;
+}
+
+function* queryDescendants<T extends Node>(
+  node: T,
+  selector: ComplexSelector | SelectorList
+): Iterable<T> {
+  if (!Array.isArray(node.childNodes)) return;
+
+  for (const child of node.childNodes) {
+    if (isElementNode(child) && matchesSelector(child, selector)) {
+      yield child as T;
+    }
+    yield* queryDescendants(child as T, selector);
+  }
+
+  const { templateContent } = node;
+  if (templateContent) {
+    yield* queryDescendants(templateContent as T, selector);
   }
 }
 
-function parseSelector(selectorString) {
-  if (!selectorString || !String(selectorString).trim())
-    throw new SelectorError("Empty selector");
-
-  const tokenizer = new SelectorTokenizer(String(selectorString).trim());
-  const tokens = tokenizer.tokenize();
-  const parser = new SelectorParser(tokens);
-  return parser.parse();
+/**
+ * Returns all descendant element nodes under `root` that match `selectorString`.
+ */
+export function* querySelectorAll<T extends Node>(
+  root: T,
+  selectorString: string
+): Iterable<T> {
+  yield* queryDescendants<T>(root, parseSelector(selectorString));
 }
 
-const matcher = new SelectorMatcher();
-
-function queryDescendants(node, selector, results) {
-  if (!node || !Array.isArray(node.children)) return;
-
-  for (const child of node.children) {
-    if (isElementNode(child) && matcher.matches(child, selector)) results.push(child);
-    queryDescendants(child, selector, results);
-  }
-
-  const templateContent = node.templateContent ?? node.template_content ?? null;
-  if (templateContent) queryDescendants(templateContent, selector, results);
-}
-
-export function query(root, selectorString) {
-  const selector = parseSelector(selectorString);
-  const results = [];
-  queryDescendants(root, selector, results);
-  return results;
-}
-
-export function matches(node, selectorString) {
-  const selector = parseSelector(selectorString);
-  return matcher.matches(node, selector);
+/**
+ * Returns `true` when `node` matches `selectorString`.
+ */
+export function matches(node: Node, selectorString: string): boolean {
+  return matchesSelector(node, parseSelector(selectorString));
 }

@@ -1,146 +1,186 @@
-import { toHTML } from "./serialize.js";
-import { query } from "./selector.js";
-import { toMarkdown } from "./markdown.js";
+import { querySelectorAll } from "./selector.ts";
+import { nodeToHTML } from "./serialize.ts";
+import type { AttrMap, Doctype } from "./tokens.ts";
 
+type NodeNamespace = "html" | "svg" | "mathml" | null | (string & {});
+export type NodeAttrMap = Map<string, string | null>;
+
+export interface ToTextOptions {
+  readonly separator?: string;
+  readonly strip?: boolean;
+}
+
+export interface ToHTMLOptions {
+  readonly indent?: number;
+  readonly indentSize?: number;
+  readonly pretty?: boolean;
+}
+
+/**
+ * Mutable tree node used throughout parsing, querying, and serialization.
+ */
 export class Node {
-  constructor(name, { attrs = null, data = null, namespace = "html" } = {}) {
-    this.name = name;
-    this.namespace =
-      name.startsWith("#") || name === "!doctype"
-        ? (namespace ?? null)
-        : namespace || "html";
-    this.parent = null;
-    this.data = data;
-    this.attrs = attrs ?? {};
-    this.children = [];
+  parentNode: Node | undefined;
+  templateContent: Node | undefined;
+  readonly childNodes: Node[] = [];
+  attrs: NodeAttrMap;
 
-    this.templateContent = null;
-    if (name === "template" && (this.namespace == null || this.namespace === "html")) {
-      this.templateContent = new Node("#document-fragment", { namespace: null });
+  /**
+   * Creates a node with optional attributes, text/doctype payload, and namespace.
+   */
+  constructor(
+    readonly name: string,
+    public data?: string | Doctype,
+    readonly namespace: NodeNamespace = "html",
+    attrs: NodeAttrMap = new Map()
+  ) {
+    this.attrs = attrs;
+    if (name === "template" && this.namespace === "html") {
+      this.templateContent = new Node("#document-fragment");
     }
-    this.template_content = this.templateContent;
   }
 
-  appendChild(node) {
-    this.children.push(node);
-    node.parent = this;
+  appendChild(node: Node): void {
+    this.childNodes.push(node);
+    node.parentNode = this;
   }
 
-  append_child(node) {
-    this.appendChild(node);
+  removeChild(node: Node): void {
+    const i = this.childNodes.indexOf(node);
+    if (i === -1) {
+      throw new Error("Node is not a child of this node");
+    }
+    this.childNodes.splice(i, 1);
+    node.parentNode = undefined;
   }
 
-  removeChild(node) {
-    const idx = this.children.indexOf(node);
-    if (idx === -1) throw new Error("Node is not a child of this node");
-    this.children.splice(idx, 1);
-    node.parent = null;
-  }
-
-  remove_child(node) {
-    this.removeChild(node);
-  }
-
-  insertBefore(node, referenceNode) {
+  insertBefore(node: Node, referenceNode: Node | undefined): void {
     if (referenceNode == null) {
       this.appendChild(node);
       return;
     }
-    const idx = this.children.indexOf(referenceNode);
-    if (idx === -1) throw new Error("Reference node is not a child of this node");
-    this.children.splice(idx, 0, node);
-    node.parent = this;
+    const i = this.childNodes.indexOf(referenceNode);
+    if (i === -1) {
+      throw new Error("Reference node is not a child of this node");
+    }
+    this.childNodes.splice(i, 0, node);
+    node.parentNode = this;
   }
 
-  insert_before(node, referenceNode) {
-    this.insertBefore(node, referenceNode);
-  }
-
-  replaceChild(newNode, oldNode) {
-    const idx = this.children.indexOf(oldNode);
-    if (idx === -1) throw new Error("Old node is not a child of this node");
-    this.children[idx] = newNode;
-    oldNode.parent = null;
-    newNode.parent = this;
+  replaceChild(newNode: Node, oldNode: Node): Node {
+    const i = this.childNodes.indexOf(oldNode);
+    if (i === -1) {
+      throw new Error("Old node is not a child of this node");
+    }
+    this.childNodes[i] = newNode;
+    oldNode.parentNode = undefined;
+    newNode.parentNode = this;
     return oldNode;
   }
 
-  replace_child(newNode, oldNode) {
-    return this.replaceChild(newNode, oldNode);
+  hasChildNodes(): boolean {
+    return this.childNodes.length > 0;
   }
 
-  hasChildNodes() {
-    return this.children.length > 0;
+  hasAttribute(name: string) {
+    return this.attrs.has(name);
   }
 
-  has_child_nodes() {
-    return this.hasChildNodes();
+  getAttribute(name: string) {
+    return this.attrs.get(name);
   }
 
-  get text() {
-    if (this.name === "#text") return this.data || "";
-    return "";
+  private get dataString() {
+    return typeof this.data === "string" ? this.data : "";
   }
 
-  toText({ separator = " ", strip = true } = {}) {
-    const parts = [];
+  get text(): string {
+    return this.name === "#text" ? this.dataString : "";
+  }
 
-    const walk = node => {
+  /**
+   * Returns aggregated text from this node subtree.
+   */
+  toText({ separator = " ", strip = true }: ToTextOptions = {}): string {
+    const parts: string[] = [];
+
+    const walk = (node: Node): void => {
       if (node.name === "#text") {
-        let data = node.data ?? "";
+        let data = node.dataString;
         if (strip) data = data.trim();
         if (data) parts.push(data);
         return;
       }
-      for (const child of node.children) walk(child);
-      if (node.templateContent) walk(node.templateContent);
+      for (const child of node.childNodes) {
+        walk(child);
+      }
+      if (node.templateContent) {
+        walk(node.templateContent);
+      }
     };
 
     walk(this);
     return parts.join(separator);
   }
 
-  to_text(options) {
-    return this.toText(options);
+  /**
+   * Serializes this subtree as HTML.
+   */
+  toHTML(options?: ToHTMLOptions): string {
+    return nodeToHTML(this, options?.indent, options?.indentSize, options?.pretty);
   }
 
-  toHTML(options) {
-    return toHTML(this, options);
+  /**
+   * Returns the first descendant node that matches the provided CSS selector.
+   */
+  querySelector(selector: string): Node | null {
+    for (const node of querySelectorAll<Node>(this, selector)) {
+      return node;
+    }
+    return null;
   }
 
-  to_html(indent = 0, indentSize = 2, pretty = true) {
-    return this.toHTML({ indent, indentSize, pretty });
+  /**
+   * Returns descendant nodes that match the provided CSS selector.
+   */
+  querySelectorAll(selector: string): Iterable<Node> {
+    return querySelectorAll<Node>(this, selector);
   }
 
-  query(selector) {
-    return query(this, selector);
-  }
-
-  toMarkdown() {
-    return toMarkdown(this);
-  }
-
-  to_markdown() {
-    return this.toMarkdown();
-  }
-
-  cloneNode(deep = false) {
-    const clone = new Node(this.name, {
-      attrs: this.attrs ? { ...this.attrs } : {},
-      data: this.data,
-      namespace: this.namespace,
-    });
+  /**
+   * Returns a shallow or deep clone of this node.
+   */
+  cloneNode(deep = false): Node {
+    const clone = new Node(this.name, this.data, this.namespace, new Map(this.attrs));
     if (this.templateContent) {
       clone.templateContent = this.templateContent.cloneNode(deep);
-      clone.template_content = clone.templateContent;
     }
     if (deep) {
-      for (const child of this.children) clone.appendChild(child.cloneNode(true));
+      for (const child of this.childNodes) {
+        clone.appendChild(child.cloneNode(true));
+      }
     }
     return clone;
   }
 
-  clone_node(deep = false) {
-    return this.cloneNode(deep);
+  get children(): Node[] {
+    return this.childNodes.filter(c => isElementNode(c));
   }
+
+  get previousSibling(): Node | undefined {
+    const { parentNode: parent } = this;
+    if (!parent) return;
+
+    let prev: Node | undefined;
+    for (const child of parent.childNodes) {
+      if (child === this) return prev;
+      if (isElementNode(child)) prev = child;
+    }
+  }
+}
+
+export function isElementNode(node: unknown): node is Node {
+  if (node == null || typeof node !== "object") return false;
+  const n = node as Node;
+  return typeof n.name === "string" && !n.name.startsWith("#") && n.name !== "!doctype";
 }

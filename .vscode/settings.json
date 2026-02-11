@@ -1,0 +1,18 @@
+{
+  "editor.formatOnSave": true,
+  "eslint.runtime": "node",
+  "cSpell.words": [
+    "bgsound",
+    "justhtml",
+    "malignmark",
+    "mglyph",
+    "noembed",
+    "rawtext",
+    "rcdata",
+    "reconsume",
+    "rstrip",
+    "selectedcontent",
+    "treebuilder",
+    "unported"
+  ]
+}

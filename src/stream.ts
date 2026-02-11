@@ -1,48 +1,69 @@
-import { decodeHTML } from "./encoding.js";
-import { Tokenizer, TokenizerOpts } from "./tokenizer.js";
-import { CommentToken, DoctypeToken, Tag, TokenSinkResult } from "./tokens.js";
+import { decodeHTML } from "./encoding.ts";
+import { type TokenizerOpts, createTokenizer } from "./tokenizer.ts";
+import {
+  type AttrMap,
+  TagKind,
+  type Token,
+  TokenKind,
+  TokenSinkResult,
+} from "./tokens.ts";
+import type { TokenizerSink } from "./treebuilder.ts";
 
-class StreamSink {
-  constructor() {
-    this.events = [];
-    this.openElements = [{ namespace: "html" }];
-  }
+type StreamEvent =
+  | ["start", [string, AttrMap]]
+  | ["end", string]
+  | ["comment", string]
+  | ["doctype", [string | undefined, string | undefined, string | undefined]]
+  | ["text", string];
 
-  processToken(token) {
-    if (token instanceof Tag) {
-      if (token.kind === Tag.START) {
-        this.events.push(["start", [token.name, { ...(token.attrs || {}) }]]);
+class StreamSink implements TokenizerSink {
+  events: StreamEvent[] = [];
+
+  processToken(token: Token): TokenSinkResult {
+    if (token.type === TokenKind.Tag) {
+      if (token.kind === TagKind.Start) {
+        this.events.push(["start", [token.name, Object.fromEntries(token.attrs)]]);
       } else {
         this.events.push(["end", token.name]);
       }
       return TokenSinkResult.Continue;
     }
 
-    if (token instanceof CommentToken) {
+    if (token.type === TokenKind.Comment) {
       this.events.push(["comment", token.data]);
       return TokenSinkResult.Continue;
     }
 
-    if (token instanceof DoctypeToken) {
+    if (token.type === TokenKind.Doctype) {
       const dt = token.doctype;
-      this.events.push([
-        "doctype",
-        [dt?.name ?? null, dt?.publicId ?? null, dt?.systemId ?? null],
-      ]);
+      this.events.push(["doctype", [dt.name, dt.publicId, dt.systemId]]);
       return TokenSinkResult.Continue;
     }
 
     return TokenSinkResult.Continue;
   }
 
-  processCharacters(data) {
+  processCharacters(data: string) {
     this.events.push(["text", data]);
   }
 }
 
-export function* stream(html, { encoding = null, tokenizerOpts = null } = {}) {
+/**
+ * Incrementally tokenizes HTML and yields normalized stream events.
+ *
+ * Adjacent text chunks are coalesced before being yielded.
+ */
+export function* stream(
+  html: string | ArrayBuffer | Uint8Array | object = "",
+  {
+    encoding,
+    tokenizerOpts = {},
+  }: {
+    encoding?: string;
+    tokenizerOpts?: TokenizerOpts;
+  } = {}
+): Generator<StreamEvent, void, void> {
   let input = html;
-  if (input == null) input = "";
 
   if (typeof input === "string") {
     // Already decoded.
@@ -51,43 +72,36 @@ export function* stream(html, { encoding = null, tokenizerOpts = null } = {}) {
   }
 
   if (input instanceof Uint8Array) {
-    const decoded = decodeHTML(input, { transportEncoding: encoding });
-    input = decoded.text;
-  } else {
-    input = String(input);
+    input = decodeHTML(input, encoding).text;
   }
 
   const sink = new StreamSink();
-  const opts =
-    tokenizerOpts instanceof TokenizerOpts
-      ? tokenizerOpts
-      : new TokenizerOpts(tokenizerOpts || {});
-  const tokenizer = new Tokenizer(sink, opts);
-  tokenizer.initialize(input);
+  const tokenizer = createTokenizer(sink, tokenizerOpts);
+  tokenizer.initialize(input as string);
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const isEof = tokenizer.step();
 
     if (sink.events.length) {
-      let textBuffer = null;
+      let textBuffer: string | undefined;
 
       for (const [event, data] of sink.events) {
         if (event === "text") {
-          if (textBuffer == null) textBuffer = "";
-          textBuffer += data || "";
+          textBuffer ??= "";
+          textBuffer += data;
           continue;
         }
 
         if (textBuffer != null) {
           yield ["text", textBuffer];
-          textBuffer = null;
+          textBuffer = undefined;
         }
-        yield [event, data];
+
+        yield [event, data] as StreamEvent;
       }
 
       if (textBuffer != null) yield ["text", textBuffer];
-      sink.events.length = 0;
+      sink.events = [];
     }
 
     if (isEof) break;

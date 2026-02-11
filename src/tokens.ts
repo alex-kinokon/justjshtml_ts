@@ -1,65 +1,99 @@
-export class Tag {
-  static START = 0;
-  static END = 1;
+import type { NodeAttrMap } from "./node.ts";
 
-  constructor(kind, name, attrs, selfClosing = false) {
-    this.kind = kind;
-    this.name = name;
-    this.attrs = attrs ?? {};
-    this.selfClosing = Boolean(selfClosing);
-  }
+export type AttrMap = Record<string, string | null>;
+
+export type Token = TagToken | CharacterToken | CommentToken | DoctypeToken | EOFToken;
+
+export const enum TagKind {
+  Start,
+  End,
 }
 
-export class CharacterToken {
-  constructor(data) {
-    this.data = data;
-  }
+export enum TokenKind {
+  Tag,
+  Character,
+  Comment,
+  Doctype,
+  EOF,
 }
 
-export class CommentToken {
-  constructor(data) {
-    this.data = data;
-  }
+export interface TagToken {
+  readonly type: TokenKind.Tag;
+  readonly kind: TagKind;
+  readonly name: string;
+  readonly attrs: NodeAttrMap;
+  readonly selfClosing: boolean;
+}
+
+export function createTagToken(
+  kind: TagKind,
+  name: string,
+  attrs: NodeAttrMap,
+  selfClosing = false
+): TagToken {
+  return { type: TokenKind.Tag, kind, name, attrs, selfClosing };
+}
+
+export interface CharacterToken {
+  readonly type: TokenKind.Character;
+  readonly data: string;
+}
+
+export function createCharacterToken(data: string): CharacterToken {
+  return { type: TokenKind.Character, data };
+}
+
+export interface CommentToken {
+  readonly type: TokenKind.Comment;
+  readonly data: string;
+}
+
+export function createCommentToken(data: string): CommentToken {
+  return { type: TokenKind.Comment, data };
 }
 
 export class Doctype {
+  readonly name: string | undefined;
+  readonly publicId: string | undefined;
+  readonly systemId: string | undefined;
+  readonly forceQuirks: boolean;
+
   constructor({
-    name = null,
-    publicId = null,
-    systemId = null,
+    name,
+    publicId,
+    systemId,
     forceQuirks = false,
+  }: {
+    name?: string | undefined;
+    publicId?: string | undefined;
+    systemId?: string | undefined;
+    forceQuirks?: boolean;
   } = {}) {
     this.name = name;
     this.publicId = publicId;
     this.systemId = systemId;
-    this.forceQuirks = Boolean(forceQuirks);
+    this.forceQuirks = forceQuirks;
   }
 }
 
-export class DoctypeToken {
-  constructor(doctype) {
-    this.doctype = doctype;
-  }
+export interface DoctypeToken {
+  readonly type: TokenKind.Doctype;
+  readonly doctype: Doctype;
 }
 
-export class EOFToken {}
-
-export class TokenSinkResult {
-  static Continue = 0;
-  static Plaintext = 1;
+export function createDocTypeToken(doctype: Doctype): DoctypeToken {
+  return { type: TokenKind.Doctype, doctype };
 }
 
-export class ParseError {
-  constructor(code, { line = null, column = null, message = null } = {}) {
-    this.code = code;
-    this.line = line;
-    this.column = column;
-    this.message = message || code;
-  }
+export interface EOFToken {
+  readonly type: TokenKind.EOF;
+}
 
-  toString() {
-    if (this.line != null && this.column != null)
-      return `(${this.line},${this.column}): ${this.code}`;
-    return this.code;
-  }
+export function eofToken(): EOFToken {
+  return { type: TokenKind.EOF };
+}
+
+export const enum TokenSinkResult {
+  Continue,
+  Plaintext,
 }

@@ -1,137 +1,139 @@
 // Port of ~/dev/justhtml/src/justhtml/constants.py
 
-export const FOREIGN_ATTRIBUTE_ADJUSTMENTS = {
-  "xlink:actuate": ["xlink", "actuate", "http://www.w3.org/1999/xlink"],
-  "xlink:arcrole": ["xlink", "arcrole", "http://www.w3.org/1999/xlink"],
-  "xlink:href": ["xlink", "href", "http://www.w3.org/1999/xlink"],
-  "xlink:role": ["xlink", "role", "http://www.w3.org/1999/xlink"],
-  "xlink:show": ["xlink", "show", "http://www.w3.org/1999/xlink"],
-  "xlink:title": ["xlink", "title", "http://www.w3.org/1999/xlink"],
-  "xlink:type": ["xlink", "type", "http://www.w3.org/1999/xlink"],
-  "xml:lang": ["xml", "lang", "http://www.w3.org/XML/1998/namespace"],
-  "xml:space": ["xml", "space", "http://www.w3.org/XML/1998/namespace"],
-  xmlns: [null, "xmlns", "http://www.w3.org/2000/xmlns/"],
-  "xmlns:xlink": ["xmlns", "xlink", "http://www.w3.org/2000/xmlns/"],
-};
+// spellchecker:disable
+export const FOREIGN_ATTRIBUTE_ADJUSTMENTS = new Map<
+  string,
+  [string | undefined, string, string]
+>([
+  ["xlink:actuate", ["xlink", "actuate", "http://www.w3.org/1999/xlink"]],
+  ["xlink:arcrole", ["xlink", "arcrole", "http://www.w3.org/1999/xlink"]],
+  ["xlink:href", ["xlink", "href", "http://www.w3.org/1999/xlink"]],
+  ["xlink:role", ["xlink", "role", "http://www.w3.org/1999/xlink"]],
+  ["xlink:show", ["xlink", "show", "http://www.w3.org/1999/xlink"]],
+  ["xlink:title", ["xlink", "title", "http://www.w3.org/1999/xlink"]],
+  ["xlink:type", ["xlink", "type", "http://www.w3.org/1999/xlink"]],
+  ["xml:lang", ["xml", "lang", "http://www.w3.org/XML/1998/namespace"]],
+  ["xml:space", ["xml", "space", "http://www.w3.org/XML/1998/namespace"]],
+  ["xmlns", [undefined, "xmlns", "http://www.w3.org/2000/xmlns/"]],
+  ["xmlns:xlink", ["xmlns", "xlink", "http://www.w3.org/2000/xmlns/"]],
+]);
 
-export const MATHML_ATTRIBUTE_ADJUSTMENTS = {
-  definitionurl: "definitionURL",
-};
+export const MATHML_ATTRIBUTE_ADJUSTMENTS = new Map([["definitionurl", "definitionURL"]]);
 
-export const SVG_ATTRIBUTE_ADJUSTMENTS = {
-  attributename: "attributeName",
-  attributetype: "attributeType",
-  basefrequency: "baseFrequency",
-  baseprofile: "baseProfile",
-  calcmode: "calcMode",
-  clippathunits: "clipPathUnits",
-  diffuseconstant: "diffuseConstant",
-  edgemode: "edgeMode",
-  filterunits: "filterUnits",
-  glyphref: "glyphRef",
-  gradienttransform: "gradientTransform",
-  gradientunits: "gradientUnits",
-  kernelmatrix: "kernelMatrix",
-  kernelunitlength: "kernelUnitLength",
-  keypoints: "keyPoints",
-  keysplines: "keySplines",
-  keytimes: "keyTimes",
-  lengthadjust: "lengthAdjust",
-  limitingconeangle: "limitingConeAngle",
-  markerheight: "markerHeight",
-  markerunits: "markerUnits",
-  markerwidth: "markerWidth",
-  maskcontentunits: "maskContentUnits",
-  maskunits: "maskUnits",
-  numoctaves: "numOctaves",
-  pathlength: "pathLength",
-  patterncontentunits: "patternContentUnits",
-  patterntransform: "patternTransform",
-  patternunits: "patternUnits",
-  pointsatx: "pointsAtX",
-  pointsaty: "pointsAtY",
-  pointsatz: "pointsAtZ",
-  preservealpha: "preserveAlpha",
-  preserveaspectratio: "preserveAspectRatio",
-  primitiveunits: "primitiveUnits",
-  refx: "refX",
-  refy: "refY",
-  repeatcount: "repeatCount",
-  repeatdur: "repeatDur",
-  requiredextensions: "requiredExtensions",
-  requiredfeatures: "requiredFeatures",
-  specularconstant: "specularConstant",
-  specularexponent: "specularExponent",
-  spreadmethod: "spreadMethod",
-  startoffset: "startOffset",
-  stddeviation: "stdDeviation",
-  stitchtiles: "stitchTiles",
-  surfacescale: "surfaceScale",
-  systemlanguage: "systemLanguage",
-  tablevalues: "tableValues",
-  targetx: "targetX",
-  targety: "targetY",
-  textlength: "textLength",
-  viewbox: "viewBox",
-  viewtarget: "viewTarget",
-  xchannelselector: "xChannelSelector",
-  ychannelselector: "yChannelSelector",
-  zoomandpan: "zoomAndPan",
-};
+export const SVG_ATTRIBUTE_ADJUSTMENTS = new Map([
+  ["attributename", "attributeName"],
+  ["attributetype", "attributeType"],
+  ["basefrequency", "baseFrequency"],
+  ["baseprofile", "baseProfile"],
+  ["calcmode", "calcMode"],
+  ["clippathunits", "clipPathUnits"],
+  ["diffuseconstant", "diffuseConstant"],
+  ["edgemode", "edgeMode"],
+  ["filterunits", "filterUnits"],
+  ["glyphref", "glyphRef"],
+  ["gradienttransform", "gradientTransform"],
+  ["gradientunits", "gradientUnits"],
+  ["kernelmatrix", "kernelMatrix"],
+  ["kernelunitlength", "kernelUnitLength"],
+  ["keypoints", "keyPoints"],
+  ["keysplines", "keySplines"],
+  ["keytimes", "keyTimes"],
+  ["lengthadjust", "lengthAdjust"],
+  ["limitingconeangle", "limitingConeAngle"],
+  ["markerheight", "markerHeight"],
+  ["markerunits", "markerUnits"],
+  ["markerwidth", "markerWidth"],
+  ["maskcontentunits", "maskContentUnits"],
+  ["maskunits", "maskUnits"],
+  ["numoctaves", "numOctaves"],
+  ["pathlength", "pathLength"],
+  ["patterncontentunits", "patternContentUnits"],
+  ["patterntransform", "patternTransform"],
+  ["patternunits", "patternUnits"],
+  ["pointsatx", "pointsAtX"],
+  ["pointsaty", "pointsAtY"],
+  ["pointsatz", "pointsAtZ"],
+  ["preservealpha", "preserveAlpha"],
+  ["preserveaspectratio", "preserveAspectRatio"],
+  ["primitiveunits", "primitiveUnits"],
+  ["refx", "refX"],
+  ["refy", "refY"],
+  ["repeatcount", "repeatCount"],
+  ["repeatdur", "repeatDur"],
+  ["requiredextensions", "requiredExtensions"],
+  ["requiredfeatures", "requiredFeatures"],
+  ["specularconstant", "specularConstant"],
+  ["specularexponent", "specularExponent"],
+  ["spreadmethod", "spreadMethod"],
+  ["startoffset", "startOffset"],
+  ["stddeviation", "stdDeviation"],
+  ["stitchtiles", "stitchTiles"],
+  ["surfacescale", "surfaceScale"],
+  ["systemlanguage", "systemLanguage"],
+  ["tablevalues", "tableValues"],
+  ["targetx", "targetX"],
+  ["targety", "targetY"],
+  ["textlength", "textLength"],
+  ["viewbox", "viewBox"],
+  ["viewtarget", "viewTarget"],
+  ["xchannelselector", "xChannelSelector"],
+  ["ychannelselector", "yChannelSelector"],
+  ["zoomandpan", "zoomAndPan"],
+]);
 
-export const SVG_TAG_NAME_ADJUSTMENTS = {
-  altglyph: "altGlyph",
-  altglyphdef: "altGlyphDef",
-  altglyphitem: "altGlyphItem",
-  animatecolor: "animateColor",
-  animatemotion: "animateMotion",
-  animatetransform: "animateTransform",
-  clippath: "clipPath",
-  feblend: "feBlend",
-  fecolormatrix: "feColorMatrix",
-  fecomponenttransfer: "feComponentTransfer",
-  fecomposite: "feComposite",
-  feconvolvematrix: "feConvolveMatrix",
-  fediffuselighting: "feDiffuseLighting",
-  fedisplacementmap: "feDisplacementMap",
-  fedistantlight: "feDistantLight",
-  feflood: "feFlood",
-  fefunca: "feFuncA",
-  fefuncb: "feFuncB",
-  fefuncg: "feFuncG",
-  fefuncr: "feFuncR",
-  fegaussianblur: "feGaussianBlur",
-  feimage: "feImage",
-  femerge: "feMerge",
-  femergenode: "feMergeNode",
-  femorphology: "feMorphology",
-  feoffset: "feOffset",
-  fepointlight: "fePointLight",
-  fespecularlighting: "feSpecularLighting",
-  fespotlight: "feSpotLight",
-  fetile: "feTile",
-  feturbulence: "feTurbulence",
-  foreignobject: "foreignObject",
-  glyphref: "glyphRef",
-  lineargradient: "linearGradient",
-  radialgradient: "radialGradient",
-  textpath: "textPath",
-};
+export const SVG_TAG_NAME_ADJUSTMENTS = new Map([
+  ["altglyph", "altGlyph"],
+  ["altglyphdef", "altGlyphDef"],
+  ["altglyphitem", "altGlyphItem"],
+  ["animatecolor", "animateColor"],
+  ["animatemotion", "animateMotion"],
+  ["animatetransform", "animateTransform"],
+  ["clippath", "clipPath"],
+  ["feblend", "feBlend"],
+  ["fecolormatrix", "feColorMatrix"],
+  ["fecomponenttransfer", "feComponentTransfer"],
+  ["fecomposite", "feComposite"],
+  ["feconvolvematrix", "feConvolveMatrix"],
+  ["fediffuselighting", "feDiffuseLighting"],
+  ["fedisplacementmap", "feDisplacementMap"],
+  ["fedistantlight", "feDistantLight"],
+  ["feflood", "feFlood"],
+  ["fefunca", "feFuncA"],
+  ["fefuncb", "feFuncB"],
+  ["fefuncg", "feFuncG"],
+  ["fefuncr", "feFuncR"],
+  ["fegaussianblur", "feGaussianBlur"],
+  ["feimage", "feImage"],
+  ["femerge", "feMerge"],
+  ["femergenode", "feMergeNode"],
+  ["femorphology", "feMorphology"],
+  ["feoffset", "feOffset"],
+  ["fepointlight", "fePointLight"],
+  ["fespecularlighting", "feSpecularLighting"],
+  ["fespotlight", "feSpotLight"],
+  ["fetile", "feTile"],
+  ["feturbulence", "feTurbulence"],
+  ["foreignobject", "foreignObject"],
+  ["glyphref", "glyphRef"],
+  ["lineargradient", "linearGradient"],
+  ["radialgradient", "radialGradient"],
+  ["textpath", "textPath"],
+]);
 
-export const NAMESPACE_URL_TO_PREFIX = {
-  "http://www.w3.org/1999/xhtml": "html",
-  "http://www.w3.org/1998/Math/MathML": "math",
-  "http://www.w3.org/2000/svg": "svg",
-};
+export const NAMESPACE_URL_TO_PREFIX = new Map([
+  ["http://www.w3.org/1999/xhtml", "html"],
+  ["http://www.w3.org/1998/Math/MathML", "math"],
+  ["http://www.w3.org/2000/svg", "svg"],
+]);
 
-const htmlIntegrationPointElements = [
+const htmlIntegrationPointElements: Array<[string, string]> = [
   ["http://www.w3.org/1998/Math/MathML", "annotation-xml"],
   ["http://www.w3.org/2000/svg", "foreignObject"],
   ["http://www.w3.org/2000/svg", "desc"],
   ["http://www.w3.org/2000/svg", "title"],
 ];
 
-const mathmlTextIntegrationPointElements = [
+const mathmlTextIntegrationPointElements: Array<[string, string]> = [
   ["http://www.w3.org/1998/Math/MathML", "mi"],
   ["http://www.w3.org/1998/Math/MathML", "mo"],
   ["http://www.w3.org/1998/Math/MathML", "mn"],
@@ -139,8 +141,8 @@ const mathmlTextIntegrationPointElements = [
   ["http://www.w3.org/1998/Math/MathML", "mtext"],
 ];
 
-function nsKey(ns, name) {
-  const prefix = NAMESPACE_URL_TO_PREFIX[ns] || ns;
+function nsKey(ns: string, name: string): string {
+  const prefix = NAMESPACE_URL_TO_PREFIX.get(ns) ?? ns;
   return `${prefix}\u0000${name}`;
 }
 
@@ -208,6 +210,7 @@ export const QUIRKY_PUBLIC_PREFIXES = [
   "-//webtechs//dtd mozilla html 2.0//",
   "-//webtechs//dtd mozilla html//",
 ];
+// spellchecker:enable
 
 export const QUIRKY_PUBLIC_MATCHES = [
   "-//w3o//dtd w3 html strict 3.0//en//",
@@ -450,6 +453,6 @@ export const VOID_ELEMENTS = new Set([
   "wbr",
 ]);
 
-export function integrationPointKey(namespace, name) {
+export function integrationPointKey(namespace: string, name: string) {
   return `${namespace}\u0000${name}`;
 }
